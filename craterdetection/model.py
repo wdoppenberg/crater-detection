@@ -1,9 +1,9 @@
 """ Full assembly of the parts to form the complete network """
 from .components import *
 
-class CraterDetection(nn.Module):
+class CraterUNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True, drop=0.0):
-        super(CraterDetection, self).__init__()
+        super(CraterUNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
 

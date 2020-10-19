@@ -1,1 +1,1 @@
-from .model import CraterDetection
+from .model import CraterUNet
