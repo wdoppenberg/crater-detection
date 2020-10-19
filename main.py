@@ -1,0 +1,2 @@
+from craterdetection import CraterDetection
+
