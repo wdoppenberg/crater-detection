@@ -133,6 +133,5 @@ dmypy.json
 
 .vscode
 blobs
-vendor
 
-VPU/IR
+VPU/IR/
