@@ -29,7 +29,7 @@ class CraterUNet(nn.Module):
         return logits
 
 
-def export2onnx(model, path='blobs/CraterUNet.onnx'):
+def export2onnx(model, path='blobs/DeepMoon.onnx'):
     dummy_input = torch.ones(1, 1, 256, 256)
     input_names = [n for n, _ in model.named_parameters()]
     output_name = ['output1']

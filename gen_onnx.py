@@ -1,7 +1,7 @@
 import torch
 from craterdetection.model import CraterUNet, export2onnx
 
-checkpoint_path = 'blobs/CraterUNet.pth'
+checkpoint_path = 'blobs/DeepMoon.pth'
 print(f"Loading {checkpoint_path}...")
 checkpoint = torch.load(checkpoint_path)
 
