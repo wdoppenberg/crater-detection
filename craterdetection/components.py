@@ -40,11 +40,11 @@ class Down(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channels, out_channels, bilinear=True, drop=0.0):
+    def __init__(self, in_channels, out_channels, upsample=True, drop=0.0):
         super().__init__()
 
         # if bilinear, use the normal convolutions to reduce the number of channels
-        if bilinear:
+        if upsample:
             self.up = nn.Upsample(scale_factor=2)
         else:
             self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
@@ -67,4 +67,5 @@ class OutConv(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.sigmoid(x)
         return x

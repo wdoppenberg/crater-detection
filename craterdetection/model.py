@@ -3,7 +3,7 @@ from .components import *
 import torch
 
 class CraterUNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=True, drop=0.0):
+    def __init__(self, n_channels, n_classes, upsample=True, drop=0.0):
         super(CraterUNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
@@ -12,9 +12,9 @@ class CraterUNet(nn.Module):
         self.down1 = Down(112, 224)
         self.down2 = Down(224, 448)
         self.down3 = Down(448, 448)
-        self.up1 = Up(896, 224, bilinear, drop)
-        self.up2 = Up(448, 112, bilinear, drop)
-        self.up3 = Up(224, 112, bilinear, drop)
+        self.up1 = Up(896, 224, upsample, drop)
+        self.up2 = Up(448, 112, upsample, drop)
+        self.up3 = Up(224, 112, upsample, drop)
         self.outc = OutConv(112, n_classes)
 
     def forward(self, x):
