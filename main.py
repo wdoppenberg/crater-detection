@@ -35,6 +35,8 @@ unet.eval()
 with torch.no_grad():
     out = unet(transforms.ToTensor()(img).unsqueeze_(0))
 
-axes[1].imshow(out.squeeze().numpy(), cmap='Greys_r')
+axes[1].imshow(nn.Sigmoid()(out).squeeze().numpy(), cmap='Greys_r')
+
+torch.save(unet.state_dict(), 'CraterUNet.pth')
 
 plt.show()
