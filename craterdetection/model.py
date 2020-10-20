@@ -1,5 +1,6 @@
 """ Full assembly of the parts to form the complete network """
 from .components import *
+import torch
 
 class CraterUNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True, drop=0.0):
@@ -26,3 +27,24 @@ class CraterUNet(nn.Module):
         x = self.up3(x, x1)
         logits = self.outc(x)
         return logits
+
+
+def export2onnx(model, path='blobs/CraterUNet.onnx'):
+    dummy_input = torch.ones(1, 1, 256, 256)
+    input_names = [n for n, _ in model.named_parameters()]
+    output_name = ['output1']
+
+    torch.onnx.export(model, dummy_input, path, input_names=input_names, output_names=output_name, opset_version=10)
+
+
+def deepmoon2torch(deepmoon, model=None):
+    if model is None:
+        model = CraterUNet(1, 1)
+
+    for param, w in zip(model.parameters(), deepmoon.weights):
+        if len(param.shape) == 4:
+            param.data = nn.Parameter(torch.Tensor(w.numpy().transpose(3, 2, 1, 0)))
+        else:
+            param.data = nn.Parameter(torch.Tensor(w.numpy()))
+
+    return model
