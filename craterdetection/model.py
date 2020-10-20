@@ -34,7 +34,7 @@ def export2onnx(model, path='blobs/CraterUNet.onnx'):
     input_names = [n for n, _ in model.named_parameters()]
     output_name = ['output1']
 
-    torch.onnx.export(model, dummy_input, path, input_names=input_names, output_names=output_name, opset_version=10)
+    torch.onnx.export(model, dummy_input, path, verbose=True, input_names=input_names, output_names=output_name, opset_version=10)
 
 
 def deepmoon2torch(deepmoon, model=None):

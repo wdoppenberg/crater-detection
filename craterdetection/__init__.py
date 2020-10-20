@@ -1,1 +1,1 @@
-from .model import CraterUNet
+from .model import *
