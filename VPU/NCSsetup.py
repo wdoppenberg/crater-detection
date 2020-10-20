@@ -53,8 +53,8 @@ for input_key in net.input_info:
     log.info("Batch size is {}".format(net.batch_size))
     net.input_info[input_key].precision = 'FP16'
 #
-# data = {}
-# data[input_name] = images
+# sample_data = {}
+# sample_data[input_name] = images
 #
 # output_name, output_info = "", net.outputs[next(iter(net.outputs.keys()))]
 # output_info.precision = "FP16"
@@ -62,4 +62,4 @@ for input_key in net.input_info:
 # log.info("Loading model to the device")
 # exec_net = ie.load_network(network=net, device_name=DEVICE)
 # log.info("Creating infer request and starting inference")
-# res = exec_net.infer(inputs=data)
+# res = exec_net.infer(inputs=sample_data)

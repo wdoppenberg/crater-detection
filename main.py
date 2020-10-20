@@ -11,7 +11,7 @@ checkpoint = torch.load('blobs/CraterUNet.pth')
 net = CraterUNet(1, 1)
 net.load_state_dict(checkpoint)
 net.eval()
-img = cv2.imread('data/test_input.png', cv2.IMREAD_GRAYSCALE)
+img = cv2.imread('sample_data/test_input.png', cv2.IMREAD_GRAYSCALE)
 batch = transforms.ToTensor()(img).unsqueeze_(0)
 
 with torch.no_grad():
