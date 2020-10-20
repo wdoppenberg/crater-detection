@@ -2,6 +2,7 @@ from openvino.inference_engine import IECore
 import logging as log
 import torch
 
+
 class NCSInferenceHandler:
     log.info("Loading Inference Engine")
     ie = IECore()
@@ -18,7 +19,7 @@ class NCSInferenceHandler:
         for input_key in self.net.input_info:
             log.info("\tinput shape: " + str(self.net.input_info[input_key].input_data.shape))
             log.info("\tinput key: " + input_key)
-            self.input_layout = self.net.input_info[input_key].input_data.shape
+            self.input_layout = self.net.input_info[input_key].input_data.layout
             self.input_shape = tuple(self.net.input_info[input_key].input_data.shape)
             self.input_key = input_key
 
@@ -34,8 +35,7 @@ class NCSInferenceHandler:
             batch = batch.numpy()
 
         if batch.shape != self.input_shape:
-            raise ValueError(f"""Batch shape does not match input!
-                    Expected {self.input_shape}, received {batch.shape}.""")
+            raise ValueError(f"Batch shape does not match input! Expected {self.input_shape}, received {batch.shape}.")
 
         log.info("Creating infer request and starting inference")
         res = self.exec_net.infer(inputs={self.input_key: batch})
@@ -46,7 +46,7 @@ class NCSInferenceHandler:
 
     def __repr__(self):
         versions = self.ie.get_versions(self.device)
-        return f"""\t\t{self.device}
+        return f"""({self.device}):
         MKLDNNPlugin version: {versions[self.device].major}.{versions[self.device].minor}
         tBuild: {versions[self.device].build_number}
         tModel info:
