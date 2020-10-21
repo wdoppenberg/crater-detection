@@ -3,15 +3,15 @@ import logging as log
 import torch
 
 
-class NCSInferenceHandler:
+class OpenVINOHandler:
     log.info("Loading Inference Engine")
     ie = IECore()
 
-    def __init__(self, model_name, device='MYRIAD', IR_path='VPU/IR/'):
+    def __init__(self, model_name, device='MYRIAD', root='VPU/IR/'):
         self.device = device
 
-        model_xml = f'{IR_path}{model_name}.xml'
-        model_bin = f'{IR_path}{model_name}.bin'
+        model_xml = f'{root}{model_name}.xml'
+        model_bin = f'{root}{model_name}.bin'
 
         self.net = self.ie.read_network(model=model_xml, weights=model_bin)
         log.info(f"Loaded network files:\n\t{model_xml}\n\t{model_bin}")
@@ -48,8 +48,8 @@ class NCSInferenceHandler:
         versions = self.ie.get_versions(self.device)
         return f"""({self.device}):
         MKLDNNPlugin version: {versions[self.device].major}.{versions[self.device].minor}
-        tBuild: {versions[self.device].build_number}
-        tModel info:
+        Build: {versions[self.device].build_number}
+        Model info:
         \tInput layout: {self.input_layout}
         \tInput shape: {self.input_shape}
         """
