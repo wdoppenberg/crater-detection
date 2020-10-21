@@ -28,7 +28,7 @@ class DeepMoon(nn.Module):
         logits = self.outc(x)
         return logits
 
-    def export2onnx(self, path='blobs/deepmoon.onnx'):
+    def export2onnx(self, path='blobs/DeepMoon.onnx'):
         dummy_input = torch.ones(1, 1, 256, 256)
         input_names = [n for n, _ in self.named_parameters()]
         output_name = ['output1']
