@@ -41,15 +41,18 @@ class OpenVINOHandler:
         res = self.exec_net.infer(inputs={self.input_key: batch})
         return res[self.out_blob]
 
+    def info(self):
+        versions = self.ie.get_versions(self.device)
+        return f"""{self.__class__.__name__}({self.device}):\n""" \
+               f"""MKLDNNPlugin version: {versions[self.device].major}.{versions[self.device].minor}\n""" \
+               f"""Build: {versions[self.device].build_number}\n""" \
+               f"""Model info:\n""" \
+               f"""\tInput layout: {self.input_layout}\n""" \
+               f"""\tInput shape: {self.input_shape}"""
+
     def __str__(self):
         return repr(self)
 
     def __repr__(self):
-        versions = self.ie.get_versions(self.device)
-        return f"""({self.device}):
-        MKLDNNPlugin version: {versions[self.device].major}.{versions[self.device].minor}
-        Build: {versions[self.device].build_number}
-        Model info:
-        \tInput layout: {self.input_layout}
-        \tInput shape: {self.input_shape}
-        """
+        return f"{self.__class__.__name__}(device={self.device},\
+             input_layout={self.input_layout}, input_shape={self.input_shape})"
