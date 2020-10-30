@@ -1,6 +1,7 @@
 from openvino.inference_engine import IECore
 import logging as log
 import torch
+import numpy as np
 
 
 class OpenVINOHandler:
@@ -16,12 +17,11 @@ class OpenVINOHandler:
         self.net = self.ie.read_network(model=model_xml, weights=model_bin)
         log.info(f"Loaded network files:\n\t{model_xml}\n\t{model_bin}")
 
-        for input_key in self.net.input_info:
-            log.info("\tinput shape: " + str(self.net.input_info[input_key].input_data.shape))
-            log.info("\tinput key: " + input_key)
-            self.input_layout = self.net.input_info[input_key].input_data.layout
-            self.input_shape = tuple(self.net.input_info[input_key].input_data.shape)
-            self.input_key = input_key
+        self.input_key = next(iter(self.net.input_info))
+        log.info("\tinput shape: " + str(self.net.input_info[self.input_key].input_data.shape))
+        log.info("\tinput key: " + self.input_key)
+        self.input_layout = self.net.input_info[self.input_key].input_data.layout
+        self.input_shape = tuple(self.net.input_info[self.input_key].input_data.shape)
 
         self.out_blob = next(iter(self.net.outputs))
 
@@ -34,12 +34,19 @@ class OpenVINOHandler:
         if isinstance(batch, torch.Tensor):
             batch = batch.numpy()
 
-        if batch.shape != self.input_shape:
+        if batch.shape[0] > 10:
+            raise ValueError("Batch size must be <= 10!")
+
+        if batch.shape[1:-1] != self.input_shape[1:-1]:
             raise ValueError(f"Batch shape does not match input! Expected {self.input_shape}, received {batch.shape}.")
 
         log.info("Creating infer request and starting inference")
-        res = self.exec_net.infer(inputs={self.input_key: batch})
-        return res[self.out_blob]
+        out = np.empty_like(batch)
+        for (i, img) in enumerate(batch):
+            res = self.exec_net.infer(inputs={self.input_key: np.expand_dims(img, 0)})
+            out[i] = res[self.out_blob][0]
+
+        return out
 
     def info(self):
         versions = self.ie.get_versions(self.device)
@@ -54,5 +61,5 @@ class OpenVINOHandler:
         return repr(self)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(device={self.device},\
-             input_layout={self.input_layout}, input_shape={self.input_shape})"
+        return f"{self.__class__.__name__}(device={self.device}, "\
+                f"input_layout={self.input_layout}, input_shape={self.input_shape})"

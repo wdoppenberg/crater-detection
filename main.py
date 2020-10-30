@@ -7,7 +7,7 @@ from craterdetection.deepmoon import template_match_t
 
 
 def main():
-    exp = OpenVINOHandler('DeepMoon', device='MYRIAD')
+    exp = OpenVINOHandler('DeepMoon', device='CPU')
 
     img = cv2.imread('sample_data/test_input.png', cv2.IMREAD_GRAYSCALE)
     batch = transforms.ToTensor()(img).unsqueeze_(0)
