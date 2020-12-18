@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 
 from VPU import OpenVINOHandler
-from craterdetection.deepmoon import template_match_t
 
 
 def main():
