@@ -133,5 +133,5 @@ dmypy.json
 
 .vscode
 
-VPU/IR/
+craterdetection/detection/VPU/IR/
 /blobs/*.onnx

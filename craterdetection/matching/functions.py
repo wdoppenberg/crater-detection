@@ -1,32 +1,44 @@
-def latlong2cartesian(lat, long, alt=0, rad=1737.1):
-    """
-    Calculate Cartesian coordinates from latitude + longitude information
-    """
-    lat, long = np.deg2rad(lat), np.deg2rad(long)
-    f  = 1./825.                                # flattening (Moon)
-    ls = np.arctan((1 - f)**2 * np.tan(lat))    # lambda
+import numpy as np
+import numpy.linalg as LA
 
-    x = rad * np.cos(ls) * np.cos(long) + alt * np.cos(lat) * np.cos(long)
-    y = rad * np.cos(ls) * np.sin(long) + alt * np.cos(lat) * np.sin(long)
-    z = rad * np.sin(ls) + alt * np.sin(lat)
 
-    return x, y, z
+def cyclic_permutations(it):
+    yield it
+    for k in range(1, len(it)):
+        p = it[k:] + it[:k]
+        if p == it:
+            break
+        yield p
 
-def haversine_np(lat1, long1, lat2, long2):
-    """
-    Calculate the great circle distance between two points
-    on the Moon (specified in decimal degrees)
 
-    All args must be of equal length.
+def matrix_adjugate(matrix, normalised=True):
+    if normalised:
+        return LA.inv(matrix)
+    else:
+        return (LA.inv(matrix).T * LA.det(matrix)).T
 
-    """
-    long1, lat1, long2, lat2 = map(np.radians, [long1, lat1, long2, lat2])
 
-    dlong = long2 - long1
-    dlat = lat2 - lat1
+def scale_det(A, n=3):
+    # rescale matrix such that det(A) = 1
+    # np.cbrt: cube root
+    if len(A.shape) == 2:
+        return np.cbrt(1. / LA.det(A)) * A
+    elif len(A.shape) == 3:
+        return np.cbrt((1. / LA.det(A)).reshape(np.shape(A)[0], 1, 1)) * A
+    else:
+        raise ValueError("Input must be nxn matrix of kxnxn array of matrices.")
 
-    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlong/2.0)**2
 
-    c = 2 * np.arcsin(np.sqrt(a))
-    km = 1737.1 * c
-    return km
+def crater_representation(x, y, a, b, psi):
+    A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
+    B = 2 * ((b ** 2) - (a ** 2)) * np.cos(psi) * np.sin(psi)
+    C = (a ** 2) * np.cos(psi) ** 2 + b ** 2 * np.sin(psi) ** 2
+    D = -2 * A * x - B * y
+    F = -B * x - 2 * C * y
+    G = A * (x ** 2) + B * x * y + C * (y ** 2) - (a ** 2) * (b ** 2)
+
+    return scale_det(np.array([
+        [A, B / 2, D / 2],
+        [B / 2, C, F / 2],
+        [D / 2, F / 2, G]
+    ]).T)
