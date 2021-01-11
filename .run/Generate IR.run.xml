@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="vendor/model_optimizer/mo_onnx.py" />
-    <option name="PARAMETERS" value="--input_model blobs\DeepMoon.onnx --input_shape [1,1,256,256] --data_type FP16 --output_dir VPU\IR --model_name DeepMoon" />
+    <option name="PARAMETERS" value="--input_model blobs\DeepMoon.onnx --input_shape [1,1,256,256] --data_type FP16 --output_dir craterdetection\detection\VPU\IR --model_name DeepMoon" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="MODULE_MODE" value="false" />

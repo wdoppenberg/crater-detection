@@ -75,6 +75,7 @@ class PermutationInvariant:
     """
     Namespace for permutation invariants functions
     """
+
     @staticmethod
     def F1(x, y, z):
         return x + y + z

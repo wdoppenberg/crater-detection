@@ -99,11 +99,10 @@ def main():
     matched_craters = crater_representation(x_t, y_t, a_t, b_t, phi_t)
     ci_t = CoplanarInvariants(matched_craters)
 
-    # it = np.random.choice(range(len(ci_t)), 100)
-    # for i in it:
-    #     print(i)
-    #     print(ci[i])
-    #     print(ci_t[i])
+    it = np.random.choice(range(len(ci_t)), 100)
+    for i in it:
+        print(f"\nDetection[{i}]: ", ci[i])
+        print(f"Catalogue[{i}]: ", ci_t[i])
 
     j = 1092
     print(ci[j])
