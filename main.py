@@ -13,6 +13,7 @@ from craterdetection.matching import (CoplanarInvariants,
 
 
 def main():
+
     h5_craters = h5py.File("data/dev_craters.hdf5", "r")
     h5_images = h5py.File("data/dev_images.hdf5", "r")
 
@@ -48,7 +49,7 @@ def main():
             out = net(torch.Tensor(batch))
             out = out.numpy()
 
-    df_detections = crater_detection(out[0, 0], threshold_lower=80)
+    df_detections = crater_detection(out[0, 0], threshold_lower=80, ellipticity_threshold=0.01)
 
     img_out = [
         batch[0, 0],
@@ -98,9 +99,15 @@ def main():
     matched_craters = crater_representation(x_t, y_t, a_t, b_t, phi_t)
     ci_t = CoplanarInvariants(matched_craters)
 
-    i = 6
-    print(ci[i])
-    print(ci_t[i])
+    # it = np.random.choice(range(len(ci_t)), 100)
+    # for i in it:
+    #     print(i)
+    #     print(ci[i])
+    #     print(ci_t[i])
+
+    j = 1092
+    print(ci[j])
+    print(ci_t[j])
 
 
 if __name__ == "__main__":

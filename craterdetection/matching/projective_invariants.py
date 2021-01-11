@@ -4,7 +4,45 @@ from itertools import combinations
 import numpy as np
 import numpy.linalg as LA
 
-from .functions import matrix_adjugate, scale_det
+
+def cyclic_permutations(it):
+    yield it
+    for k in range(1, len(it)):
+        p = it[k:] + it[:k]
+        if p == it:
+            break
+        yield p
+
+
+def matrix_adjugate(matrix):
+    cofactor = np.linalg.inv(matrix).T * np.linalg.det(matrix)
+    return cofactor.T
+
+
+def scale_det(A, n=3):
+    # rescale matrix such that det(A) = 1
+    # np.cbrt: cube root
+    if len(A.shape) == 2:
+        return np.cbrt(1. / LA.det(A)) * A
+    elif len(A.shape) == 3:
+        return np.cbrt((1. / LA.det(A)).reshape(np.shape(A)[0], 1, 1)) * A
+    else:
+        raise ValueError("Input must be nxn matrix of kxnxn array of matrices.")
+
+
+def crater_representation(x, y, a, b, psi):
+    A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
+    B = 2 * ((b ** 2) - (a ** 2)) * np.cos(psi) * np.sin(psi)
+    C = (a ** 2) * np.cos(psi) ** 2 + b ** 2 * np.sin(psi) ** 2
+    D = -2 * A * x - B * y
+    F = -B * x - 2 * C * y
+    G = A * (x ** 2) + B * x * y + C * (y ** 2) - (a ** 2) * (b ** 2)
+
+    return scale_det(np.array([
+        [A, B / 2, D / 2],
+        [B / 2, C, F / 2],
+        [D / 2, F / 2, G]
+    ]).T)
 
 
 class PermutationInvariant:
@@ -15,7 +53,7 @@ class PermutationInvariant:
     @staticmethod
     def F2(x, y, z):
         return (2 * (x ** 3 + y ** 3 + z ** 3) + 12 * x * y * z - 3 * (
-                    (x ** 2) * y + (y ** 2) * x + (y ** 2) * z + (z ** 2) * y + (z ** 2) * x + (x ** 2) * z)) / \
+                (x ** 2) * y + (y ** 2) * x + (y ** 2) * z + (z ** 2) * y + (z ** 2) * x + (x ** 2) * z)) / \
                (x ** 2 + y ** 2 + z ** 2 - (x * y + y * z + z * x))
 
     @staticmethod
@@ -24,6 +62,15 @@ class PermutationInvariant:
 
     @classmethod
     def F(cls, x, y, z):
+        """
+        Return a triad of values that is invariant w.r.t. cyclic permutations of the input values.
+
+        @param x: value 1
+        @param y: value 2
+        @param z: value 3
+        @rtype: np.ndarray
+        @return: Array containing permutation invariants F1, F2, F3
+        """
         return np.array((cls.F1(x, y, z), cls.F2(x, y, z), cls.F3(x, y, z)))
 
     @staticmethod

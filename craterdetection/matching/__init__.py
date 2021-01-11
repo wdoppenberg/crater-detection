@@ -1,2 +1,2 @@
-from .functions import scale_det, matrix_adjugate, crater_representation, cyclic_permutations
-from .objects import PermutationInvariant, CoplanarInvariants, CraterTriad
+from .projective_invariants import PermutationInvariant, CoplanarInvariants, CraterTriad, \
+    scale_det, matrix_adjugate, crater_representation, cyclic_permutations
