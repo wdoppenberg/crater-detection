@@ -54,7 +54,7 @@ def crater_representation(x, y, a, b, psi):
     @param y: Y-position in 2D cartesian coordinate system (coplanar)
     @param a: Semi-major ellipse axis
     @param b: Semi-minor ellipse axis
-    @param psi: Ellipse angle
+    @param psi: Ellipse angle (radians)
     @return: Array of ellipse matrices
     """
     A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
@@ -150,7 +150,7 @@ class CraterTriad:
 
 
 class CoplanarInvariants:
-    def __init__(self, craters, normalize_det=False):
+    def __init__(self, crater_triads, A_i, A_j, A_k, normalize_det=False):
         """
         Generates projective invariants assuming craters are coplanar. Input is an array of crater matrices
         such as those generated using L{crater_representation}.
@@ -158,12 +158,7 @@ class CoplanarInvariants:
         @param craters: Array of craters
         @param normalize_det: Argument whether to normalize matrices to achieve det(A) = 1
         """
-        self.crater_triads = np.array(list(combinations(range(len(craters)), 3)))
-
-        A_i = craters[self.crater_triads[:, 0]]
-        A_j = craters[self.crater_triads[:, 1]]
-        A_k = craters[self.crater_triads[:, 2]]
-
+        self.crater_triads = crater_triads
         overlapped_craters = ~np.logical_and.reduce((
             np.isfinite(LA.cond(A_i - A_j)),
             np.isfinite(LA.cond(A_i - A_k)),
