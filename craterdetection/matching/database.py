@@ -73,18 +73,18 @@ def _np_swap_columns(arr):
     return arr
 
 
-def _gen_local_cartesian_coords(lat_, long_, x_, y_, z_, crater_triads_, Rbody=1737.1):
-    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(_triad_splice(c, crater_triads_), axis=0) / 3.,
-                                                (x_, y_, z_))
+def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1):
+    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(_triad_splice(c, crater_triads), axis=0) / 3.,
+                                                (x, y, z))
     _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
     avg_triad_lat, avg_triad_long = map(np.array, (avg_triad_lat, avg_triad_long))
 
-    dlat = np.array(_triad_splice(lat_, crater_triads_)) - np.tile(avg_triad_lat, (3, 1))
-    dlong = np.array(_triad_splice(long_, crater_triads_)) - np.tile(avg_triad_long, (3, 1))
+    dlat = np.array(_triad_splice(lat, crater_triads)) - np.tile(avg_triad_lat, (3, 1))
+    dlong = np.array(_triad_splice(long, crater_triads)) - np.tile(avg_triad_long, (3, 1))
 
     """
     Use Haversine great circle function decomposed for lat & long to generate approximations for cartesian coordinates
-    in an ENU-reference frame.
+    in a 2D ENU-reference frame.
     """
     x_triads = np.array(
         [2 * Rbody * np.arcsin(np.cos(np.radians(avg_triad_lat)) * np.sin(dlong_i / 2)) for dlong_i in dlong]
@@ -100,12 +100,24 @@ def _cw_or_ccw(x_triads_, y_triads_):
                                         [x_triads_[2], y_triads_[2], np.ones_like(x_triads_[0])]]), -1, 0))
 
 
-def _is_line(x_triads_, y_triads_):
+def _is_colinear(x_triads_, y_triads_):
     return _cw_or_ccw(x_triads_, y_triads_) == 0
 
 
-def _is_clockwise(x_triads_, y_triads_):
-    return _cw_or_ccw(x_triads_, y_triads_) < 0
+def _is_clockwise(x_triads, y_triads):
+    """Returns boolean array which tells whether the three points in 2D plane given by x_triads & y_triads are
+    oriented clockwise. https://en.wikipedia.org/wiki/Curve_orientation#Orientation_of_a_simple_polygon
+
+    Parameters
+    ----------
+    x_triads, y_triads : np.ndarray
+        Array of 2D coordinates for triangles in a plane
+
+    Returns
+    -------
+    np.ndarray
+    """
+    return _cw_or_ccw(x_triads, y_triads) < 0
 
 
 def _all_clockwise(x_triads_, y_triads_):
@@ -123,11 +135,40 @@ class CraterDatabase:
                  Rbody=_Rbody,
                  radius=_radius
                  ):
+        """Crater database abstraction keyed by crater triads that generate projective invariants using information
+        about their elliptical shape and relative positions [1]. Input is a crater dataset [2] that has positional
+        and geometrical (ellipse parameters) information, and generates an array of 7 features per
+        crater triad
+
+        Parameters
+        ----------
+        lat : np.ndarray
+            Crater latitude [radians]
+        long : np.ndarray
+            Crater longitude [radians]
+        major_axis : np.ndarray
+            Crater major axis [km]
+        minor_axis : np.ndarray
+            Crater minor axis [km]
+        psi : np.ndarray
+            Crater ellipse angle [radians]
+        crater_id : np.ndarray, optional
+            Crater identifier, defaults to enumerated array over len(lat)
+        Rbody : float, optional
+            Body radius, defaults to _radius [km]
+        radius :
+            Maximum radius to consider two craters connected [km]
+
+        References
+        ----------
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [2] Robbins, S. J. (2019). A New Global Database of Lunar Impact Craters &gt;1–2 km: 1. Crater Locations and Sizes, Comparisons With Published Databases, and Global Analysis. Journal of Geophysical Research: Planets, 124(4), 871–892. https://doi.org/10.1029/2018JE005592
+        """
 
         if crater_id is None:
-            self.crater_id = np.arange(len(lat))
+            crater_id = np.arange(len(lat))
         else:
-            self.crater_id = crater_id
+            crater_id = crater_id
 
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, lat, long))
 
@@ -157,36 +198,35 @@ class CraterDatabase:
         crater_triads_cw[~clockwise] = _np_swap_columns(crater_triads[~clockwise])
 
         # TODO: Implement swap here for better performance
-        self._x_triads, self._y_triads = _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads_cw, Rbody)
+        x_triads, y_triads = _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads_cw, Rbody)
 
-        if not _all_clockwise(self._x_triads, self._y_triads):
-            line = _is_line(self._x_triads, self._y_triads)
-            self._x_triads = self._x_triads[:, ~line]
-            self._y_triads = self._y_triads[:, ~line]
+        if not _all_clockwise(x_triads, y_triads):
+            line = _is_colinear(x_triads, y_triads)
+            x_triads = x_triads[:, ~line]
+            y_triads = y_triads[:, ~line]
             crater_triads_cw = crater_triads_cw[~line]
 
-            if not _all_clockwise(self._x_triads, self._y_triads):
+            if not _all_clockwise(x_triads, y_triads):
                 raise RuntimeError("Failed to order triads in clockwise order.")
-
-        self.crater_triads = crater_triads_cw
 
         """
         Generate crater matrix representation using per-triad coordinate system along with major- and minor-axis, as 
         well as angle. 
         """
-        self._a_triads, self._b_triads, self._psi_triads = map(_triad_splice, (major_axis, minor_axis, psi),
-                                                               repeat(self.crater_triads))
-
-        self.crater_triads_id = _triad_splice(crater_id, self.crater_triads)
+        a_triads, b_triads, psi_triads = map(_triad_splice, (major_axis, minor_axis, psi),
+                                             repeat(crater_triads_cw))
 
         crater_triads_matrices = []
-        for args in zip(self._x_triads, self._y_triads, self._a_triads, self._b_triads, self._psi_triads):
+        for args in zip(x_triads, y_triads, a_triads, b_triads, psi_triads):
             crater_triads_matrices.append(crater_representation(*args))
 
         A_i, A_j, A_k = crater_triads_matrices
-        invariants = CoplanarInvariants(self.crater_triads, A_i, A_j, A_k, normalize_det=True)
+        invariants = CoplanarInvariants(crater_triads_cw, A_i, A_j, A_k, normalize_det=True)
 
         self.features = invariants.get_pattern()
+        self.crater_triads = invariants.crater_triads
+
+        self.crater_triads_id = _triad_splice(crater_id, self.crater_triads)
 
     @classmethod
     def from_df(cls,
@@ -195,6 +235,24 @@ class CraterDatabase:
                 Rbody=_Rbody,
                 radius=_radius
                 ):
+        """
+        Class method for constructing from pandas DataFrame.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Crater dataset
+        column_keys : dict
+            Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
+        Rbody : float, optional
+            Body radius, defaults to _radius [km]
+        radius :
+            Maximum radius to consider two craters connected [km]
+
+        Returns
+        -------
+        CraterDatabase
+        """
 
         if column_keys is None:
             column_keys = dict(lat='LAT_ELLI_IMG', long='LON_ELLI_IMG', major='DIAM_ELLI_MAJOR_IMG',
@@ -219,6 +277,26 @@ class CraterDatabase:
                   Rbody=_Rbody,
                   radius=_radius
                   ):
+        """
+
+        Parameters
+        ----------
+        path
+        latlims
+        longlims
+        diamlims
+        ellipse_limit
+        column_keys : dict
+            Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
+        Rbody : float, optional
+            Body radius, defaults to _radius [km]
+        radius :
+            Maximum radius to consider two craters connected [km]
+
+        Returns
+        -------
+        CraterDatabase
+        """
 
         if path is None:
             if __name__ == "__main__":
