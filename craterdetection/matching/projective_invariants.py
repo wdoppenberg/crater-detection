@@ -1,30 +1,9 @@
-from dataclasses import dataclass
 from itertools import combinations
 
 import numpy as np
 import numpy.linalg as LA
 
-
-def cyclic_permutations(it):
-    """Returns cyclic permutations for iterable.
-
-    Parameters
-    ----------
-    it
-        Iterable
-
-    Returns
-    -------
-    generator
-        Cyclic permutation generator
-    """
-
-    yield it
-    for k in range(1, len(it)):
-        p = it[k:] + it[:k]
-        if p == it:
-            break
-        yield p
+from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
 
 
 def matrix_adjugate(matrix):
@@ -184,7 +163,7 @@ class PermutationInvariant:
 
 
 class CoplanarInvariants:
-    def __init__(self, crater_triads, A_i, A_j, A_k, normalize_det=False):
+    def __init__(self, crater_triads, A_i, A_j, A_k, normalize_det=True):
         """Generates projective invariants [1] assuming craters are coplanar. Input is an array of crater matrices
         such as those generated using L{crater_representation}.
 
@@ -226,6 +205,53 @@ class CoplanarInvariants:
                                                                                          axis2=-2)
         self.I_ijk = np.trace((matrix_adjugate(A_j + A_k) - matrix_adjugate(A_j - A_k)) @ A_i, axis1=-1, axis2=-2)
 
+    @classmethod
+    def from_detection(cls,
+                       x_pix,
+                       y_pix,
+                       a_pix,
+                       b_pix,
+                       psi_pix,
+                       convert_to_radians=True
+                       ):
+
+        if convert_to_radians:
+            psi_pix = np.radians(psi_pix)
+
+        n_det = len(x_pix)
+
+        n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
+        crater_triads = np.empty((n_comb, 3), np.int)
+        for i, el in enumerate(combinations(np.arange(n_det), 3)):
+            crater_triads[i] = el
+
+        x_pix_triad, y_pix_triad = x_pix[crater_triads].T, y_pix[crater_triads].T
+        avg_triad_x, avg_triad_y = map(lambda c: np.sum(c, axis=0) / 3., (x_pix_triad, y_pix_triad))
+
+        x_triads = x_pix_triad - np.tile(avg_triad_x, (3, 1))
+        y_triads = y_pix_triad - np.tile(avg_triad_y, (3, 1))
+
+        clockwise = is_clockwise(x_triads, y_triads)
+
+        crater_triads_cw = crater_triads.copy()
+        crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
+        x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
+        y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
+
+        if not all_clockwise(x_triads, y_triads):
+            line = is_colinear(x_triads, y_triads)
+            x_triads = x_triads[:, ~line]
+            y_triads = y_triads[:, ~line]
+            crater_triads_cw = crater_triads_cw[~line]
+
+            if not all_clockwise(x_triads, y_triads):
+                raise Warning("Failed to order triads in clockwise order.")
+
+        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_pix[crater_triads_cw].T, b_pix[crater_triads_cw].T,
+                            psi_pix[crater_triads_cw].T)
+
+        return cls(crater_triads_cw, A_i, A_j, A_k)
+
     def get_pattern(self, permutation_invariant=False):
         """Get matching pattern using either permutation invariant features (eq. 134 from [1]) or raw projective
         invariants (p. 61 from [1]).
@@ -251,8 +277,7 @@ class CoplanarInvariants:
                 PermutationInvariant.F1(self.I_ji, self.I_kj, self.I_ik),
                 PermutationInvariant.G_tilde(self.I_ij, self.I_jk, self.I_ki, self.I_ji, self.I_kj, self.I_ik).T,
                 self.I_ijk
-            )
-            ).T
+            )).T
 
         else:
             return np.column_stack((
@@ -267,3 +292,14 @@ class CoplanarInvariants:
 
     def __len__(self):
         return len(self.I_ij)
+
+
+if __name__ == "__main__":
+    xyz = (-1, -2, 3)
+    xyz_perm = cyclic_permutations(xyz)
+    for xyz_ in xyz_perm:
+        print(f"F{xyz_} = {PermutationInvariant.F(*xyz_)}")
+
+    pqr = (5, -10, 100)
+    for (xyz_, pqr_) in zip(cyclic_permutations(xyz), cyclic_permutations(pqr)):
+        print(f"G_tilde({xyz_}, {pqr_}) = {PermutationInvariant.G_tilde(*xyz, *pqr_)}")

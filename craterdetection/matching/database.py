@@ -2,32 +2,17 @@ from itertools import repeat
 
 import networkx as nx
 import numpy as np
-import numpy.linalg as LA
 import pandas as pd
 import sklearn.neighbors
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 
 from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
+from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
 
 _radius = 200  # Create triangles with every crater within this radius [km]
 _Rbody = 1737.1  # Body radius (moon) [km]
-_diamlims = [4, 30]
-_ellipse_limit = 1.1
-
-
-# https://stackoverflow.com/questions/1705824/finding-cycle-of-3-nodes-or-triangles-in-a-graph
-def get_cliques_by_length(G, length_clique):
-    """ Return the list of all cliques in an undirected graph G with length
-    equal to length_clique. """
-    cliques = []
-    for c in nx.enumerate_all_cliques(G):
-        if len(c) <= length_clique:
-            if len(c) == length_clique:
-                cliques.append(c)
-        else:
-            return cliques
-    # return empty list if nothing is found
-    return cliques
+_diamlims = [4, 30]  # Limit dataset to craters with diameter between 4 and 30 km
+_ellipse_limit = 1.1  # Limit dataset to craters with an ellipticity <= 1.1
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None, diamlims=None,
@@ -50,37 +35,14 @@ def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latli
     return df_craters
 
 
-def latlong2cartesian(lat, long, alt=0, rad=1737.1):
-    """
-    Calculate Cartesian coordinates from latitude + longitude information
-    """
-    f = 1. / 825.  # flattening (Moon)
-    ls = np.arctan((1 - f) ** 2 * np.tan(lat))  # lambda
-
-    x = rad * np.cos(ls) * np.cos(long) + alt * np.cos(lat) * np.cos(long)
-    y = rad * np.cos(ls) * np.sin(long) + alt * np.cos(lat) * np.sin(long)
-    z = rad * np.sin(ls) + alt * np.sin(lat)
-
-    return x, y, z
-
-
-def _triad_splice(arr, triangles_):
-    return np.array((arr[triangles_[:, 0]], arr[triangles_[:, 1]], arr[triangles_[:, 2]]))
-
-
-def _np_swap_columns(arr):
-    arr[:, 0], arr[:, 1] = arr[:, 1], arr[:, 0].copy()
-    return arr
-
-
 def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1):
-    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(_triad_splice(c, crater_triads), axis=0) / 3.,
+    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
                                                 (x, y, z))
     _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
     avg_triad_lat, avg_triad_long = map(np.array, (avg_triad_lat, avg_triad_long))
 
-    dlat = np.array(_triad_splice(lat, crater_triads)) - np.tile(avg_triad_lat, (3, 1))
-    dlong = np.array(_triad_splice(long, crater_triads)) - np.tile(avg_triad_long, (3, 1))
+    dlat = np.array(triad_splice(lat, crater_triads)) - np.tile(avg_triad_lat, (3, 1))
+    dlong = np.array(triad_splice(long, crater_triads)) - np.tile(avg_triad_long, (3, 1))
 
     """
     Use Haversine great circle function decomposed for lat & long to generate approximations for cartesian coordinates
@@ -92,36 +54,6 @@ def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1)
     y_triads = np.array([Rbody * dlat_i for dlat_i in dlat])
 
     return x_triads, y_triads
-
-
-def _cw_or_ccw(x_triads_, y_triads_):
-    return LA.det(np.moveaxis(np.array([[x_triads_[0], y_triads_[0], np.ones_like(x_triads_[0])],
-                                        [x_triads_[1], y_triads_[1], np.ones_like(x_triads_[0])],
-                                        [x_triads_[2], y_triads_[2], np.ones_like(x_triads_[0])]]), -1, 0))
-
-
-def _is_colinear(x_triads_, y_triads_):
-    return _cw_or_ccw(x_triads_, y_triads_) == 0
-
-
-def _is_clockwise(x_triads, y_triads):
-    """Returns boolean array which tells whether the three points in 2D plane given by x_triads & y_triads are
-    oriented clockwise. https://en.wikipedia.org/wiki/Curve_orientation#Orientation_of_a_simple_polygon
-
-    Parameters
-    ----------
-    x_triads, y_triads : np.ndarray
-        Array of 2D coordinates for triangles in a plane
-
-    Returns
-    -------
-    np.ndarray
-    """
-    return _cw_or_ccw(x_triads, y_triads) < 0
-
-
-def _all_clockwise(x_triads_, y_triads_):
-    return np.logical_and.reduce(_is_clockwise(x_triads_, y_triads_))
 
 
 class CraterDatabase:
@@ -151,13 +83,13 @@ class CraterDatabase:
         minor_axis : np.ndarray
             Crater minor axis [km]
         psi : np.ndarray
-            Crater ellipse angle [radians]
+            Crater ellipse tilt angle, major axis w.r.t. East-West direction (0, pi) [radians]
         crater_id : np.ndarray, optional
             Crater identifier, defaults to enumerated array over len(lat)
         Rbody : float, optional
-            Body radius, defaults to _radius [km]
+            Body radius, defaults to _Rbody [km]
         radius :
-            Maximum radius to consider two craters connected [km]
+            Maximum radius to consider two craters connected, defaults to _radius [km]
 
         References
         ----------
@@ -166,11 +98,14 @@ class CraterDatabase:
         """
 
         if crater_id is None:
-            crater_id = np.arange(len(lat))
+            self.crater_id = np.arange(len(lat))
         else:
-            crater_id = crater_id
+            self.crater_id = crater_id
 
-        x, y, z = map(np.array, spherical_to_cartesian(Rbody, lat, long))
+        self.lat = lat
+        self.long = long
+
+        x, y, z = map(np.array, spherical_to_cartesian(Rbody, self.lat, self.long))
 
         """
         Construct adjacency matrix to generate Graph instance
@@ -188,45 +123,39 @@ class CraterDatabase:
         The following returns a nx3 array containing the indices of crater triads
         """
         crater_triads = np.array([c for c in nx.cycle_basis(self._graph) if len(c) == 3])
+        x_triads, y_triads = _gen_local_cartesian_coords(self.lat, self.long, x, y, z, crater_triads, Rbody)
 
         """
         Ensure all crater triads are clockwise
         """
-        clockwise = _is_clockwise(*_gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody))
+        clockwise = is_clockwise(x_triads, y_triads)
 
         crater_triads_cw = crater_triads.copy()
-        crater_triads_cw[~clockwise] = _np_swap_columns(crater_triads[~clockwise])
+        crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
+        x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
+        y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
 
-        # TODO: Implement swap here for better performance
-        x_triads, y_triads = _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads_cw, Rbody)
-
-        if not _all_clockwise(x_triads, y_triads):
-            line = _is_colinear(x_triads, y_triads)
+        if not all_clockwise(x_triads, y_triads):
+            line = is_colinear(x_triads, y_triads)
             x_triads = x_triads[:, ~line]
             y_triads = y_triads[:, ~line]
             crater_triads_cw = crater_triads_cw[~line]
 
-            if not _all_clockwise(x_triads, y_triads):
+            if not all_clockwise(x_triads, y_triads):
                 raise RuntimeError("Failed to order triads in clockwise order.")
 
         """
         Generate crater matrix representation using per-triad coordinate system along with major- and minor-axis, as 
         well as angle. 
         """
-        a_triads, b_triads, psi_triads = map(_triad_splice, (major_axis, minor_axis, psi),
+        a_triads, b_triads, psi_triads = map(triad_splice, (major_axis, minor_axis, psi),
                                              repeat(crater_triads_cw))
 
-        crater_triads_matrices = []
-        for args in zip(x_triads, y_triads, a_triads, b_triads, psi_triads):
-            crater_triads_matrices.append(crater_representation(*args))
-
-        A_i, A_j, A_k = crater_triads_matrices
+        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_triads, b_triads, psi_triads)
         invariants = CoplanarInvariants(crater_triads_cw, A_i, A_j, A_k, normalize_det=True)
 
         self.features = invariants.get_pattern()
         self.crater_triads = invariants.crater_triads
-
-        self.crater_triads_id = _triad_splice(crater_id, self.crater_triads)
 
     @classmethod
     def from_df(cls,
@@ -245,9 +174,9 @@ class CraterDatabase:
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to _radius [km]
+            Body radius, defaults to _Rbody [km]
         radius :
-            Maximum radius to consider two craters connected [km]
+            Maximum radius to consider two craters connected, defaults to _radius [km]
 
         Returns
         -------
@@ -282,16 +211,19 @@ class CraterDatabase:
         Parameters
         ----------
         path
-        latlims
-        longlims
-        diamlims
-        ellipse_limit
+            Path to crater dataset CSV
+        latlims, longlims : list
+            Limits for latitude & longitude (format: [min, max])
+        diamlims : list
+            Limits for crater diameter (format: [min, max]), defaults to _diamlims
+        ellipse_limit : float
+            Limit dataset to craters with b/a <= ellipse_limit
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to _radius [km]
+            Body radius, defaults to _Rbody [km]
         radius :
-            Maximum radius to consider two craters connected [km]
+            Maximum radius to consider two craters connected, defaults to _radius [km]
 
         Returns
         -------
@@ -316,8 +248,14 @@ class CraterDatabase:
         return cls.from_df(df_craters, column_keys, Rbody, radius)
 
     def get_features(self):
-        id_i, id_j, id_k = self.crater_triads_id
+        id_i, id_j, id_k = triad_splice(self.crater_id, self.crater_triads)
         return id_i, id_j, id_k, self.features
+
+    def get_position(self, index=None):
+        if index is None:
+            return triad_splice(self.lat, self.crater_triads), triad_splice(self.long, self.crater_triads)
+
+        return triad_splice(self.lat, self.crater_triads[index]), triad_splice(self.long, self.crater_triads[index])
 
     def I_ij(self):
         return self.features[0]
@@ -339,6 +277,9 @@ class CraterDatabase:
 
     def I_ijk(self):
         return self.features[6]
+
+    def __len__(self):
+        return len(self.I_ij())
 
 
 if __name__ == "__main__":
