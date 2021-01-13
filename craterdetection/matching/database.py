@@ -1,9 +1,18 @@
-from itertools import combinations
+from itertools import repeat
 
-import numpy as np
-import pandas as pd
 import networkx as nx
+import numpy as np
+import numpy.linalg as LA
+import pandas as pd
 import sklearn.neighbors
+from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
+
+from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
+
+_radius = 200  # Create triangles with every crater within this radius [km]
+_Rbody = 1737.1  # Body radius (moon) [km]
+_diamlims = [4, 30]
+_ellipse_limit = 1.1
 
 
 # https://stackoverflow.com/questions/1705824/finding-cycle-of-3-nodes-or-triangles-in-a-graph
@@ -20,8 +29,9 @@ def get_cliques_by_length(G, length_clique):
     # return empty list if nothing is found
     return cliques
 
+
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None, diamlims=None,
-                 ellipse_limit=1.1):
+                 ellipse_limit=_ellipse_limit):
     df_craters = pd.read_csv(path)
 
     if latlims:
@@ -54,69 +64,205 @@ def latlong2cartesian(lat, long, alt=0, rad=1737.1):
     return x, y, z
 
 
+def _triad_splice(arr, triangles_):
+    return np.array((arr[triangles_[:, 0]], arr[triangles_[:, 1]], arr[triangles_[:, 2]]))
+
+
+def _np_swap_columns(arr):
+    arr[:, 0], arr[:, 1] = arr[:, 1], arr[:, 0].copy()
+    return arr
+
+
+def _gen_local_cartesian_coords(lat_, long_, x_, y_, z_, crater_triads_, Rbody=1737.1):
+    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(_triad_splice(c, crater_triads_), axis=0) / 3.,
+                                                (x_, y_, z_))
+    _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
+    avg_triad_lat, avg_triad_long = map(np.array, (avg_triad_lat, avg_triad_long))
+
+    dlat = np.array(_triad_splice(lat_, crater_triads_)) - np.tile(avg_triad_lat, (3, 1))
+    dlong = np.array(_triad_splice(long_, crater_triads_)) - np.tile(avg_triad_long, (3, 1))
+
+    """
+    Use Haversine great circle function decomposed for lat & long to generate approximations for cartesian coordinates
+    in an ENU-reference frame.
+    """
+    x_triads = np.array(
+        [2 * Rbody * np.arcsin(np.cos(np.radians(avg_triad_lat)) * np.sin(dlong_i / 2)) for dlong_i in dlong]
+    )
+    y_triads = np.array([Rbody * dlat_i for dlat_i in dlat])
+
+    return x_triads, y_triads
+
+
+def _cw_or_ccw(x_triads_, y_triads_):
+    return LA.det(np.moveaxis(np.array([[x_triads_[0], y_triads_[0], np.ones_like(x_triads_[0])],
+                                        [x_triads_[1], y_triads_[1], np.ones_like(x_triads_[0])],
+                                        [x_triads_[2], y_triads_[2], np.ones_like(x_triads_[0])]]), -1, 0))
+
+
+def _is_line(x_triads_, y_triads_):
+    return _cw_or_ccw(x_triads_, y_triads_) == 0
+
+
+def _is_clockwise(x_triads_, y_triads_):
+    return _cw_or_ccw(x_triads_, y_triads_) < 0
+
+
+def _all_clockwise(x_triads_, y_triads_):
+    return np.logical_and.reduce(_is_clockwise(x_triads_, y_triads_))
+
+
 class CraterDatabase:
     def __init__(self,
-                 connectivity_matrix,
-                 crater_id: np.ndarray,
-                 lat: np.ndarray,
-                 long: np.ndarray,
-                 a: np.ndarray,
-                 b: np.ndarray,
-                 connectivity_index=True
+                 lat,
+                 long,
+                 major_axis,
+                 minor_axis,
+                 psi,
+                 crater_id=None,
+                 Rbody=_Rbody,
+                 radius=_radius
                  ):
-        self._connectivity_matrix = connectivity_matrix
-        self._connectivity_index = connectivity_index
 
-        self.crater_id = crater_id
-        self.lat = lat  # [rad]
-        self.long = long  # [rad]
-        self.a = a
-        self.b = b
+        if crater_id is None:
+            self.crater_id = np.arange(len(lat))
+        else:
+            self.crater_id = crater_id
+
+        x, y, z = map(np.array, spherical_to_cartesian(Rbody, lat, long))
+
+        """
+        Construct adjacency matrix to generate Graph instance
+        """
+        self._adjacency_matrix = sklearn.neighbors.radius_neighbors_graph(np.array([x, y, z]).T, radius,
+                                                                          mode='connectivity',
+                                                                          metric='euclidean', n_jobs=-1)
+
+        self._graph = nx.from_scipy_sparse_matrix(self._adjacency_matrix)
+
+        """
+        Get all crater triads using cycle basis with length = 3
+        https://en.wikipedia.org/wiki/Cycle_basis
+        
+        The following returns a nx3 array containing the indices of crater triads
+        """
+        crater_triads = np.array([c for c in nx.cycle_basis(self._graph) if len(c) == 3])
+
+        """
+        Ensure all crater triads are clockwise
+        """
+        clockwise = _is_clockwise(*_gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody))
+
+        crater_triads_cw = crater_triads.copy()
+        crater_triads_cw[~clockwise] = _np_swap_columns(crater_triads[~clockwise])
+
+        # TODO: Implement swap here for better performance
+        self._x_triads, self._y_triads = _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads_cw, Rbody)
+
+        if not _all_clockwise(self._x_triads, self._y_triads):
+            line = _is_line(self._x_triads, self._y_triads)
+            self._x_triads = self._x_triads[:, ~line]
+            self._y_triads = self._y_triads[:, ~line]
+            crater_triads_cw = crater_triads_cw[~line]
+
+            if not _all_clockwise(self._x_triads, self._y_triads):
+                raise RuntimeError("Failed to order triads in clockwise order.")
+
+        self.crater_triads = crater_triads_cw
+
+        """
+        Generate crater matrix representation using per-triad coordinate system along with major- and minor-axis, as 
+        well as angle. 
+        """
+        self._a_triads, self._b_triads, self._psi_triads = map(_triad_splice, (major_axis, minor_axis, psi),
+                                                               repeat(self.crater_triads))
+
+        self.crater_triads_id = _triad_splice(crater_id, self.crater_triads)
+
+        crater_triads_matrices = []
+        for args in zip(self._x_triads, self._y_triads, self._a_triads, self._b_triads, self._psi_triads):
+            crater_triads_matrices.append(crater_representation(*args))
+
+        A_i, A_j, A_k = crater_triads_matrices
+        invariants = CoplanarInvariants(self.crater_triads, A_i, A_j, A_k, normalize_det=True)
+
+        self.features = invariants.get_pattern()
 
     @classmethod
-    def from_df(cls, df, radius=150, Rplanet=1737.1):
-        lat, long = df[['LAT_ELLI_IMG', 'LON_ELLI_IMG']].to_numpy().T
+    def from_df(cls,
+                df,
+                column_keys=None,
+                Rbody=_Rbody,
+                radius=_radius
+                ):
+
+        if column_keys is None:
+            column_keys = dict(lat='LAT_ELLI_IMG', long='LON_ELLI_IMG', major='DIAM_ELLI_MAJOR_IMG',
+                               minor='DIAM_ELLI_MINOR_IMG', angle='DIAM_ELLI_ANGLE_IMG', id='CRATER_ID')
+
+        lat, long = df[[column_keys['lat'], column_keys['long']]].to_numpy().T
         lat, long = map(np.radians, (lat, long))  # ALWAYS CONVERT TO RADIANS
+        major, minor = df[[column_keys['major'], column_keys['minor']]].to_numpy().T
+        psi = np.radians(df['DIAM_ELLI_ANGLE_IMG'].to_numpy())
+        crater_id = df[column_keys['id']].to_numpy()
 
-        major, minor = df[['DIAM_ELLI_MAJOR_IMG', 'DIAM_ELLI_MINOR_IMG']].to_numpy().T
-        x, y, z = latlong2cartesian(lat, long)
+        return cls(lat, long, major, minor, psi, crater_id, Rbody, radius)
 
-        connectivity_matrix = sklearn.neighbors.radius_neighbors_graph(np.array([x, y, z]).T, radius,
-                                                                       mode='connectivity',
-                                                                       metric='euclidean', n_jobs=-1)
-        source_index, _ = connectivity_matrix.nonzero()
+    @classmethod
+    def from_file(cls,
+                  path=None,
+                  latlims=None,
+                  longlims=None,
+                  diamlims=None,
+                  ellipse_limit=_ellipse_limit,
+                  column_keys=None,
+                  Rbody=_Rbody,
+                  radius=_radius
+                  ):
 
-        lat, long = lat[source_index], long[source_index]
-        crater_id = df['CRATER_ID'].to_numpy()
+        if path is None:
+            if __name__ == "__main__":
+                path = "../../data/lunar_crater_database_robbins_2018.csv"
+            else:
+                path = "data/lunar_crater_database_robbins_2018.csv"
 
-        # dlat = lat_dest - lat_source
-        # dlong = long_dest - long_source
-        #
-        # dx = 2 * Rplanet * np.arcsin(np.cos(lat_source) * np.sin(dlong / 2))
-        # dy = Rplanet * dlat
+        if column_keys is None:
+            column_keys = dict(lat='LAT_ELLI_IMG', long='LON_ELLI_IMG', major='DIAM_ELLI_MAJOR_IMG',
+                               minor='DIAM_ELLI_MINOR_IMG', angle='DIAM_ELLI_ANGLE_IMG', id='CRATER_ID')
 
-        return cls(connectivity_matrix, crater_id, lat, long, major, minor)
+        if diamlims is None:
+            diamlims = _diamlims
 
-    def __getitem__(self, item):
-        return (self.crater_id[item],
-                self.lat[item],
-                self.long[item],
-                self.a[item],
-                self.b[item])
+        df_craters = load_craters(path, latlims, longlims, diamlims, ellipse_limit)
 
-    def __len__(self):
-        return len(self.crater_id)
+        return cls.from_df(df_craters, column_keys, Rbody, radius)
 
-    def __repr__(self):
-        return self.__class__.__name__ + f"( ({len(np.unique(self.crater_id))}) <-> " \
-                                         f"{len(self._connectivity_matrix.nonzero()[0])})"
+    def get_features(self):
+        id_i, id_j, id_k = self.crater_triads_id
+        return id_i, id_j, id_k, self.features
+
+    def I_ij(self):
+        return self.features[0]
+
+    def I_ji(self):
+        return self.features[1]
+
+    def I_ik(self):
+        return self.features[2]
+
+    def I_ki(self):
+        return self.features[3]
+
+    def I_jk(self):
+        return self.features[4]
+
+    def I_kj(self):
+        return self.features[5]
+
+    def I_ijk(self):
+        return self.features[6]
 
 
 if __name__ == "__main__":
-    df_craters = load_craters(diamlims=[4, 30])
-    print(df_craters)
-    print(df_craters.columns)
-    db = CraterDatabase.from_df(df_craters)
-    print(np.array(list(combinations(range(len(db)), 3))))
-
-    # https://github.com/michelp/pygraphblas
+    db = CraterDatabase.from_file()
+    print(db.get_features())
