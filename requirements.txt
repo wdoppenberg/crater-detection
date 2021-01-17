@@ -1,7 +1,11 @@
-opencv-python
+opencv
 numpy
+matplotlib
 pandas
-torch
+pytorch
+torchvision
+torchaudio
+typing_extensions
 scipy
 h5py
 astropy

@@ -35,6 +35,25 @@ def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latli
     return df_craters
 
 
+def extract_robbins_dataset(df=None, column_keys=None, radians=True):
+    if df is None:
+        df = load_craters()
+
+    if column_keys is None:
+        column_keys = dict(lat='LAT_ELLI_IMG', long='LON_ELLI_IMG', major='DIAM_ELLI_MAJOR_IMG',
+                           minor='DIAM_ELLI_MINOR_IMG', angle='DIAM_ELLI_ANGLE_IMG', id='CRATER_ID')
+
+    lat, long = df[[column_keys['lat'], column_keys['long']]].to_numpy().T
+    major, minor = df[[column_keys['major'], column_keys['minor']]].to_numpy().T
+    psi = df['DIAM_ELLI_ANGLE_IMG'].to_numpy()
+    if radians:
+        lat, long = map(np.radians, (lat, long))  # ALWAYS CONVERT TO RADIANS
+        psi = np.radians(psi)
+    crater_id = df[column_keys['id']].to_numpy()
+
+    return lat, long, major, minor, psi, crater_id
+
+
 def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1):
     avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
                                                 (x, y, z))
