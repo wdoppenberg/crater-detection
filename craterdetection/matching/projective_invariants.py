@@ -214,6 +214,26 @@ class CoplanarInvariants:
                        convert_to_radians=True,
                        crater_triads=None
                        ):
+        """
+
+        Parameters
+        ----------
+        x_pix, y_pix : np.ndarray
+            Crater center positions in image plane
+        a_pix, b_pix : np.ndarray
+            Crater ellipse axis parameters in image plane
+        psi_pix : np.ndarray
+            Crater ellipse angle w.r.t. x-direction in image plane
+        convert_to_radians : bool
+            Whether to convert psi to radians inside method (default: True)
+        crater_triads : np.ndarray
+            nx3 array of indices for crater triad(s)
+
+        Returns
+        -------
+        CoplanarInvariants
+
+        """
 
         if convert_to_radians:
             psi_pix = np.radians(psi_pix)
@@ -263,6 +283,33 @@ class CoplanarInvariants:
                         psi_pix,
                         convert_to_radians=True
                         ):
+        """ Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
+        using Enhanced Pattern Shifting method [2].
+
+        Parameters
+        ----------
+        x_pix, y_pix : np.ndarray
+            Crater center positions in image plane
+        a_pix, b_pix : np.ndarray
+            Crater ellipse axis parameters in image plane
+        psi_pix : np.ndarray
+            Crater ellipse angle w.r.t. x-direction in image plane
+        convert_to_radians : bool
+            Whether to convert psi to radians inside method (default: True)
+
+        Yields
+        ------
+        crater_triad : np.ndarray
+            Triad indices (1x3)
+        CoplanarInvariants
+             Associated CoplanarInvariants instance
+
+        References
+        ----------
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [2] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
+
+        """
         n_det = len(x_pix)
         for i, j, k in enhanced_pattern_shifting(n_det):
             crater_triads = np.array([i, j, k])[None, :]
@@ -315,14 +362,3 @@ class CoplanarInvariants:
 
     def __len__(self):
         return len(self.I_ij)
-
-
-if __name__ == "__main__":
-    xyz = (-1, -2, 3)
-    xyz_perm = cyclic_permutations(xyz)
-    for xyz_ in xyz_perm:
-        print(f"F{xyz_} = {PermutationInvariant.F(*xyz_)}")
-
-    pqr = (5, -10, 100)
-    for (xyz_, pqr_) in zip(cyclic_permutations(xyz), cyclic_permutations(pqr)):
-        print(f"G_tilde({xyz_}, {pqr_}) = {PermutationInvariant.G_tilde(*xyz, *pqr_)}")
