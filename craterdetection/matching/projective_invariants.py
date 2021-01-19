@@ -1,10 +1,8 @@
-from itertools import combinations
-
 import numpy as np
 import numpy.linalg as LA
 
-from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
-    cyclic_permutations
+from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
+    cyclic_permutations, enhanced_pattern_shifting
 
 
 def matrix_adjugate(matrix):
@@ -213,18 +211,20 @@ class CoplanarInvariants:
                        a_pix,
                        b_pix,
                        psi_pix,
-                       convert_to_radians=True
+                       convert_to_radians=True,
+                       crater_triads=None
                        ):
 
         if convert_to_radians:
             psi_pix = np.radians(psi_pix)
 
-        n_det = len(x_pix)
+        if crater_triads is None:
+            n_det = len(x_pix)
+            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
 
-        n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
-        crater_triads = np.empty((n_comb, 3), np.int)
-        for i, el in enumerate(combinations(np.arange(n_det), 3)):
-            crater_triads[i] = el
+            crater_triads = np.zeros((n_comb, 3), np.int)
+            for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
+                crater_triads[it] = np.array([i, j, k])
 
         x_pix_triad, y_pix_triad = x_pix[crater_triads].T, y_pix[crater_triads].T
         avg_triad_x, avg_triad_y = map(lambda c: np.sum(c, axis=0) / 3., (x_pix_triad, y_pix_triad))
@@ -248,10 +248,32 @@ class CoplanarInvariants:
             if not all_clockwise(x_triads, y_triads):
                 raise Warning("Failed to order triads in clockwise order.")
 
-        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_pix[crater_triads_cw].T, b_pix[crater_triads_cw].T,
+        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_pix[crater_triads_cw].T,
+                            b_pix[crater_triads_cw].T,
                             psi_pix[crater_triads_cw].T)
 
         return cls(crater_triads_cw, A_i, A_j, A_k)
+
+    @classmethod
+    def match_generator(cls,
+                        x_pix,
+                        y_pix,
+                        a_pix,
+                        b_pix,
+                        psi_pix,
+                        convert_to_radians=True
+                        ):
+        n_det = len(x_pix)
+        for i, j, k in enhanced_pattern_shifting(n_det):
+            crater_triads = np.array([i, j, k])[None, :]
+            yield crater_triads.squeeze(), cls.from_detection(x_pix,
+                                                              y_pix,
+                                                              a_pix,
+                                                              b_pix,
+                                                              psi_pix,
+                                                              convert_to_radians,
+                                                              crater_triads
+                                                              )
 
     def get_pattern(self, permutation_invariant=False):
         """Get matching pattern using either permutation invariant features (eq. 134 from [1]) or raw projective
