@@ -3,7 +3,8 @@ from itertools import combinations
 import numpy as np
 import numpy.linalg as LA
 
-from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
+from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
+    cyclic_permutations
 
 
 def matrix_adjugate(matrix):
