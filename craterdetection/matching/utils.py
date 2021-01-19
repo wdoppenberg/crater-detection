@@ -91,3 +91,28 @@ def latlong2cartesian(lat, long, alt=0, rad=1737.1):
     z = rad * np.sin(ls) + alt * np.sin(lat)
 
     return x, y, z
+
+
+def enhanced_pattern_shifting(n):
+    """Generator function returning next crater triad according to Enhanced Pattern Shifting Method [1].
+
+    Parameters
+    ----------
+    n : int
+        Number of detected instances
+
+    Returns
+    -------
+    i, j, k : Iter
+
+    References
+    ----------
+    .. [1] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
+    """
+    for dj in range(1, n-2):
+        for dk in range(1, n-dj-1):
+            for ii in range(0, 3):
+                for i in range(ii, n-dj-dk, 3):
+                    j = i + dj
+                    k = j + dk
+                    yield i, j, k
