@@ -23,7 +23,7 @@ def matrix_adjugate(matrix):
     .. [1] https://en.wikipedia.org/wiki/Adjugate_matrix
     """
 
-    cofactor = np.linalg.inv(matrix).T * np.linalg.det(matrix)
+    cofactor = LA.inv(matrix).T * LA.det(matrix)
     return cofactor.T
 
 

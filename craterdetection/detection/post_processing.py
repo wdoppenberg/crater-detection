@@ -31,7 +31,7 @@ def ellipticity(a, b):
     return (a - b) / a if a >= b else (b - a) / b
 
 
-def crater_detection(mask, threshold_lower=80, ellipticity_threshold=0.01):
+def crater_detection(mask, threshold_lower=80, ellipticity_threshold=0.1):
     mask = np.uint8(mask * 255)
     ret, thresh = cv2.threshold(mask, threshold_lower, 255, 0)
     # thresh = skeletonise(thresh)

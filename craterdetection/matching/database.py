@@ -1,7 +1,9 @@
+from functools import partial
 from itertools import repeat
 
 import networkx as nx
 import numpy as np
+import numpy.linalg as LA
 import pandas as pd
 import sklearn.neighbors
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
@@ -54,7 +56,8 @@ def extract_robbins_dataset(df=None, column_keys=None, radians=True):
     return lat, long, major, minor, psi, crater_id
 
 
-def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1):
+# Deprecated
+def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=_Rbody):
     avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
                                                 (x, y, z))
     _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
@@ -73,6 +76,73 @@ def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=1737.1)
     y_triads = np.array([Rbody * dlat_i for dlat_i in dlat])
 
     return x_triads, y_triads
+
+
+def gen_ENU_coordinates(lat, long, crater_triads, Rbody=_Rbody):
+    """Generate local 2D coordinates for crater triads by constructing a plane normal to the centroid. This is an
+    approximation that is only valid for craters that, for practical reasons, can be considered coplanar.
+
+    Using the coordinate system defined using:
+
+    .. math::
+        \mathbf{u}_i = \mathbf{p}^{(c)}_{M_i}/||\mathbf{p}^{(c)}_{M_i}||
+
+        \mathbf{e}_i = cross(\mathbf{k}, \mathbf{u}_i )/|| cross(\mathbf{k}, \mathbf{u}_i) ||
+
+        \mathbf{n}_i = cross(\mathbf{u}_i, \mathbf{e}_i)/|| cross(\mathbf{u}_i, \mathbf{e}_i) ||
+
+    with
+
+    .. math::
+        k = [0 & 0 & 1]^T
+
+    and :math:`p_{Mi}` is the selenographic 3D cartesian coordinate derived from latitude & longitude.
+
+    Parameters
+    ----------
+    lat : np.ndarray
+        Crater latitude [radians]
+    long : np.ndarray
+        Crater longitude [radians]
+    crater_triads : np.ndarray
+        Crater triad indices (nx3) for slicing arrays
+    Rbody : float, optional
+        Body radius, defaults to _Rbody [km]
+    Returns
+    -------
+    x_triad, y_triad : np.ndarray
+        3xN array containing x or y coordinate in a per-triad ENU 2D (East, North) coordinate system.
+    """
+    x, y, z = map(np.array, spherical_to_cartesian(Rbody, lat[crater_triads], long[crater_triads]))
+    avg_x, avg_y, avg_z = map(partial(np.mean, axis=-1), (x, y, z))
+
+    p_centroid = np.array([avg_x, avg_y, avg_z])[:, None].transpose(2, 0, 1)
+
+    k = np.array([0, 0, 1])[:, None]
+
+    u_i = p_centroid / Rbody
+
+    e_i = np.cross(k[None, ...], u_i, axis=1)
+    e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
+
+    n_i = np.cross(u_i, e_i, axis=1)
+    n_i /= LA.norm(n_i, ord=2, axis=(1, 2))[:, None, None]
+
+    T_ME = LA.inv(np.concatenate((e_i, n_i, u_i), axis=-1))
+
+    dx, dy, dz = x - avg_x[:, None], y - avg_y[:, None], z - avg_z[:, None]
+    delta_pos = np.concatenate((dx[None, :], dy[None, :], dz[None, :]), axis=0).T[..., None]
+    ENU_pos = T_ME @ delta_pos
+
+    if np.mean(np.abs(ENU_pos[..., 2, 0])) / np.mean(np.abs(ENU_pos[..., 0, 0])) > 0.05 or \
+            np.mean(np.abs(ENU_pos[..., 2, 0])) / np.mean(np.abs(ENU_pos[..., 1, 0])) > 0.05:
+        raise Warning("Average absolute Z-component in ENU coordinate system exceeds 5%!")
+
+    # Z-component is negligible, as is intended.
+    x_triad = ENU_pos[:, :, 0, 0]
+    y_triad = ENU_pos[:, :, 1, 0]
+
+    return x_triad, y_triad
 
 
 class CraterDatabase:
@@ -142,7 +212,7 @@ class CraterDatabase:
         The following returns a nx3 array containing the indices of crater triads
         """
         crater_triads = np.array([c for c in nx.cycle_basis(self._graph) if len(c) == 3])
-        x_triads, y_triads = _gen_local_cartesian_coords(self.lat, self.long, x, y, z, crater_triads, Rbody)
+        x_triads, y_triads = gen_ENU_coordinates(self.lat, self.long, crater_triads, Rbody)
 
         """
         Ensure all crater triads are clockwise
@@ -164,8 +234,8 @@ class CraterDatabase:
                 raise RuntimeError("Failed to order triads in clockwise order.")
 
         """
-        Generate crater matrix representation using per-triad coordinate system along with major- and minor-axis, as 
-        well as angle. 
+        Generate crater matrix representation using ENU coordinate system (with triangle centroid as origin) along 
+        with major- and minor-axis, as well as angle w.r.t East-West direction. 
         """
         a_triads, b_triads, psi_triads = map(triad_splice, (major_axis, minor_axis, psi),
                                              repeat(crater_triads_cw))

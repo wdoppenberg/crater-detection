@@ -50,10 +50,9 @@ def cyclic_permutations(it):
     it
         Iterable
 
-    Returns
+    Yields
     -------
-    generator
-        Cyclic permutation generator
+    Cyclic permutation of it
     """
 
     yield it
