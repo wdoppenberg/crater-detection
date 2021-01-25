@@ -94,7 +94,7 @@ def gen_ENU_coordinates(lat, long, crater_triads, Rbody=_Rbody):
     with
 
     .. math::
-        k = [0 & 0 & 1]^T
+        \mathbf{k} = [0 & 0 & 1]^T
 
     and :math:`p_{Mi}` is the selenographic 3D cartesian coordinate derived from latitude & longitude.
 
@@ -279,7 +279,7 @@ class CraterDatabase:
         lat, long = df[[column_keys['lat'], column_keys['long']]].to_numpy().T
         lat, long = map(np.radians, (lat, long))  # ALWAYS CONVERT TO RADIANS
         major, minor = df[[column_keys['major'], column_keys['minor']]].to_numpy().T
-        psi = np.radians(df['DIAM_ELLI_ANGLE_IMG'].to_numpy())
+        psi = np.radians(df[column_keys['angle']].to_numpy())
         crater_id = df[column_keys['id']].to_numpy()
 
         return cls(lat, long, major, minor, psi, crater_id, Rbody, radius)

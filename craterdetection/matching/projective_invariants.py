@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import numpy.linalg as LA
 
@@ -246,12 +248,7 @@ class CoplanarInvariants:
             for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
                 crater_triads[it] = np.array([i, j, k])
 
-        x_pix_triad, y_pix_triad = x_pix[crater_triads].T, y_pix[crater_triads].T
-        avg_triad_x, avg_triad_y = map(lambda c: np.sum(c, axis=0) / 3., (x_pix_triad, y_pix_triad))
-
-        x_triads = x_pix_triad - np.tile(avg_triad_x, (3, 1))
-        y_triads = y_pix_triad - np.tile(avg_triad_y, (3, 1))
-
+        x_triads, y_triads = x_pix[crater_triads].T, y_pix[crater_triads].T
         clockwise = is_clockwise(x_triads, y_triads)
 
         crater_triads_cw = crater_triads.copy()
