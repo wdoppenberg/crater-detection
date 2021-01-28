@@ -11,3 +11,4 @@ h5py
 astropy
 scikit-learn
 networkx
+test-generator
