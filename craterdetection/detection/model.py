@@ -33,7 +33,8 @@ class DeepMoon(nn.Module):
         input_names = [n for n, _ in self.named_parameters()]
         output_name = ['output1']
 
-        torch.onnx.export(self, dummy_input, path, verbose=True, input_names=input_names, output_names=output_name, opset_version=10)
+        torch.onnx.export(self, dummy_input, path, verbose=False, input_names=input_names, output_names=output_name,
+                          opset_version=11)
 
     @classmethod
     def from_keras(cls, deepmoon):

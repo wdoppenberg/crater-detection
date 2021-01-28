@@ -1,4 +1,4 @@
-""" Parts of the U-Net craterdetection """
+""" Parts of the U-Net DeepMoon """
 
 import torch
 import torch.nn as nn
@@ -42,7 +42,6 @@ class Up(nn.Module):
     def __init__(self, in_channels, out_channels, upsample=True, drop=0.0):
         super().__init__()
 
-        # if bilinear, use the normal convolutions to reduce the number of channels
         if upsample:
             self.up = nn.Upsample(scale_factor=2)
         else:
