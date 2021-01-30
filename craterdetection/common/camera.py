@@ -10,7 +10,7 @@ def camera_matrix(fov, offset=0, alpha=0):
     ----------
     fov : float, Iterable
         Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
-    offset : float, Iterable
+    offset : int, Iterable
         Offset in pixel-frame, if type is Iterable it will be interpreted as (offset_x, offset_y)
     alpha : float
         Camera skew angle.
@@ -32,7 +32,7 @@ def camera_matrix(fov, offset=0, alpha=0):
         y_0 = offset
 
     if isinstance(fov, Iterable):
-        f_x, f_y = map(lambda fov_, offset_: offset_ / np.tan(np.radians(fov_) / 2), zip(fov, (x_0, y_0)))
+        f_x, f_y = map(lambda fov_, offset_: offset_ / np.tan(np.radians(fov_) / 2), fov, (x_0, y_0))
     else:
         f_x, f_y = map(lambda offset_: offset_ / np.tan(np.radians(fov) / 2), (x_0, y_0))
 

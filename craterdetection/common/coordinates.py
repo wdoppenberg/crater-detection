@@ -19,7 +19,7 @@ def ENU_system(p):
     k = np.array([0, 0, 1])[:, None]
 
     if len(p.shape) > 1:
-        u_i = p / LA.norm(p, ord=2, axis=(1, 2))
+        u_i = p / LA.norm(p, ord=2, axis=(1, 2))[:, None, None]
 
         e_i = np.cross(k[None, ...], u_i, axis=1)
         e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
