@@ -10,6 +10,7 @@ from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 
 from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
 from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
+from craterdetection.common.coordinates import ENU_system
 
 _radius = 200  # Create triangles with every crater within this radius [km]
 _Rbody = 1737.1  # Body radius (moon) [km]
@@ -118,15 +119,7 @@ def gen_ENU_coordinates(lat, long, crater_triads, Rbody=_Rbody):
 
     p_centroid = np.array([avg_x, avg_y, avg_z])[:, None].transpose(2, 0, 1)
 
-    k = np.array([0, 0, 1])[:, None]
-
-    u_i = p_centroid / Rbody
-
-    e_i = np.cross(k[None, ...], u_i, axis=1)
-    e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
-
-    n_i = np.cross(u_i, e_i, axis=1)
-    n_i /= LA.norm(n_i, ord=2, axis=(1, 2))[:, None, None]
+    e_i, n_i, u_i = ENU_system(p_centroid)
 
     T_ME = LA.inv(np.concatenate((e_i, n_i, u_i), axis=-1))
 
