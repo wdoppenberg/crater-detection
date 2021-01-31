@@ -11,15 +11,11 @@ from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
 from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
 from craterdetection.common.coordinates import ENU_system
-
-_radius = 200  # Create triangles with every crater within this radius [km]
-_Rbody = 1737.1  # Body radius (moon) [km]
-_diamlims = [4, 30]  # Limit dataset to craters with diameter between 4 and 30 km
-_ellipse_limit = 1.1  # Limit dataset to craters with an ellipticity <= 1.1
+import craterdetection.common.constants as const
 
 
-def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None, diamlims=None,
-                 ellipse_limit=_ellipse_limit):
+def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None,
+                 diamlims=const.DIAMLIMS, ellipse_limit=const.MAX_ELLIPTICITY):
     df_craters = pd.read_csv(path)
 
     if latlims:
@@ -58,7 +54,7 @@ def extract_robbins_dataset(df=None, column_keys=None, radians=True):
 
 
 # Deprecated
-def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=_Rbody):
+def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=const.RBODY):
     avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
                                                 (x, y, z))
     _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
@@ -79,7 +75,7 @@ def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=_Rbody)
     return x_triads, y_triads
 
 
-def gen_ENU_coordinates(lat, long, crater_triads, Rbody=_Rbody):
+def gen_ENU_coordinates(lat, long, crater_triads, Rbody=const.RBODY):
     """Generate local 2D coordinates for crater triads by constructing a plane normal to the centroid. This is an
     approximation that is only valid for craters that, for practical reasons, can be considered coplanar.
 
@@ -108,7 +104,7 @@ def gen_ENU_coordinates(lat, long, crater_triads, Rbody=_Rbody):
     crater_triads : np.ndarray
         Crater triad indices (nx3) for slicing arrays
     Rbody : float, optional
-        Body radius, defaults to _Rbody [km]
+        Body radius, defaults to RBODY [km]
     Returns
     -------
     x_triad, y_triad : np.ndarray
@@ -146,8 +142,8 @@ class CraterDatabase:
                  minor_axis,
                  psi,
                  crater_id=None,
-                 Rbody=_Rbody,
-                 radius=_radius
+                 Rbody=const.RBODY,
+                 radius=const.TRIAD_RADIUS
                  ):
         """Crater database abstraction keyed by crater triads that generate projective invariants using information
         about their elliptical shape and relative positions [1]. Input is a crater dataset [2] that has positional
@@ -169,9 +165,9 @@ class CraterDatabase:
         crater_id : np.ndarray, optional
             Crater identifier, defaults to enumerated array over len(lat)
         Rbody : float, optional
-            Body radius, defaults to _Rbody [km]
+            Body radius, defaults to RBODY [km]
         radius :
-            Maximum radius to consider two craters connected, defaults to _radius [km]
+            Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
 
         References
         ----------
@@ -243,8 +239,8 @@ class CraterDatabase:
     def from_df(cls,
                 df,
                 column_keys=None,
-                Rbody=_Rbody,
-                radius=_radius
+                Rbody=const.RBODY,
+                radius=const.TRIAD_RADIUS
                 ):
         """
         Class method for constructing from pandas DataFrame.
@@ -256,9 +252,9 @@ class CraterDatabase:
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to _Rbody [km]
+            Body radius, defaults to RBODY [km]
         radius :
-            Maximum radius to consider two craters connected, defaults to _radius [km]
+            Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
 
         Returns
         -------
@@ -283,10 +279,10 @@ class CraterDatabase:
                   latlims=None,
                   longlims=None,
                   diamlims=None,
-                  ellipse_limit=_ellipse_limit,
+                  ellipse_limit=const.MAX_ELLIPTICITY,
                   column_keys=None,
-                  Rbody=_Rbody,
-                  radius=_radius
+                  Rbody=const.RBODY,
+                  radius=const.TRIAD_RADIUS
                   ):
         """
 
@@ -299,13 +295,13 @@ class CraterDatabase:
         diamlims : list
             Limits for crater diameter (format: [min, max]), defaults to _diamlims
         ellipse_limit : float
-            Limit dataset to craters with b/a <= ellipse_limit
+            Limit dataset to craters with b/a <= MAX_ELLIPTICITY
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to _Rbody [km]
+            Body radius, defaults to RBODY [km]
         radius :
-            Maximum radius to consider two craters connected, defaults to _radius [km]
+            Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
 
         Returns
         -------
@@ -323,7 +319,7 @@ class CraterDatabase:
                                minor='DIAM_ELLI_MINOR_IMG', angle='DIAM_ELLI_ANGLE_IMG', id='CRATER_ID')
 
         if diamlims is None:
-            diamlims = _diamlims
+            diamlims = const.DIAMLIMS
 
         df_craters = load_craters(path, latlims, longlims, diamlims, ellipse_limit)
 

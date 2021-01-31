@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 import numpy.linalg as LA
 
-from .coordinates import ENU_system
-from .camera import camera_matrix, projection_matrix
+from craterdetection.common.coordinates import ENU_system
+from craterdetection.common.camera import camera_matrix, projection_matrix
 
 
 def crater_camera_homography(p, P_MC):
@@ -35,7 +35,7 @@ def crater_camera_homography(p, P_MC):
     return P_MC @ np.concatenate((H_Mi, np.tile(k.T[None, ...], (len(H_Mi), 1, 1))), axis=1)
 
 
-def project_craters(C, p, fov, resolution, T_MC, r_M):
+def project_craters(C, p, fov, resolution, T_CM, r_M):
     """Project crater conics into digital pixel frame. See pages 17 - 25 from [1] for methodology.
 
     Parameters
@@ -48,7 +48,7 @@ def project_craters(C, p, fov, resolution, T_MC, r_M):
         Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
     resolution : int, Iterable
         Image resolution, if type is Iterable it will be interpreted as (res_x, res_y)
-    T_MC : np.ndarray
+    T_CM : np.ndarray
         3x3 matrix representing camera attitude in world reference frame
     r_M : np.ndarray
         3x1 position vector of camera
@@ -68,6 +68,7 @@ def project_craters(C, p, fov, resolution, T_MC, r_M):
     else:
         offset = resolution/2
 
+    T_MC = LA.inv(T_CM)
     K = camera_matrix(fov, offset)
     P_MC = projection_matrix(K, T_MC, r_M)
     H_Ci = crater_camera_homography(p, P_MC)
