@@ -229,7 +229,7 @@ class CraterDatabase:
         a_triads, b_triads, psi_triads = map(triad_splice, (major_axis, minor_axis, psi),
                                              repeat(crater_triads_cw))
 
-        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_triads, b_triads, psi_triads)
+        A_i, A_j, A_k = map(crater_representation, a_triads, b_triads, psi_triads, x_triads, y_triads,)
         invariants = CoplanarInvariants(crater_triads_cw, A_i, A_j, A_k, normalize_det=True)
 
         self.features = invariants.get_pattern()

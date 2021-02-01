@@ -50,7 +50,7 @@ def scale_det(A):
         raise ValueError("Input must be nxn matrix of kxnxn array of matrices.")
 
 
-def crater_representation(x, y, a, b, psi):
+def crater_representation(a, b, psi, x=0, y=0):
     """Returns matrix representation for crater derived from ellipse parameters
 
     Parameters
@@ -265,9 +265,11 @@ class CoplanarInvariants:
             if not all_clockwise(x_triads, y_triads):
                 raise Warning("Failed to order triads in clockwise order.")
 
-        A_i, A_j, A_k = map(crater_representation, x_triads, y_triads, a_pix[crater_triads_cw].T,
+        A_i, A_j, A_k = map(crater_representation, a_pix[crater_triads_cw].T,
                             b_pix[crater_triads_cw].T,
-                            psi_pix[crater_triads_cw].T)
+                            psi_pix[crater_triads_cw].T,
+                            x_triads,
+                            y_triads)
 
         return cls(crater_triads_cw, A_i, A_j, A_k)
 
