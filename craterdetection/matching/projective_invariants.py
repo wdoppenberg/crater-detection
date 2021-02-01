@@ -198,13 +198,13 @@ class CoplanarInvariants:
         if normalize_det:
             A_i, A_j, A_k = map(scale_det, (A_i, A_j, A_k))
 
-        self.I_ij, self.I_ji = np.trace(LA.inv(A_i) @ A_j, axis1=-1, axis2=-2), np.trace(LA.inv(A_j) @ A_i, axis1=-1,
-                                                                                         axis2=-2)
-        self.I_ik, self.I_ki = np.trace(LA.inv(A_i) @ A_k, axis1=-1, axis2=-2), np.trace(LA.inv(A_k) @ A_i, axis1=-1,
-                                                                                         axis2=-2)
-        self.I_jk, self.I_kj = np.trace(LA.inv(A_j) @ A_k, axis1=-1, axis2=-2), np.trace(LA.inv(A_k) @ A_j, axis1=-1,
-                                                                                         axis2=-2)
-        self.I_ijk = np.trace((matrix_adjugate(A_j + A_k) - matrix_adjugate(A_j - A_k)) @ A_i, axis1=-1, axis2=-2)
+        self.I_ij, self.I_ji = np.trace(LA.inv(A_i) @ A_j, axis1=-2, axis2=-1), np.trace(LA.inv(A_j) @ A_i, axis1=-2,
+                                                                                         axis2=-1)
+        self.I_ik, self.I_ki = np.trace(LA.inv(A_i) @ A_k, axis1=-2, axis2=-1), np.trace(LA.inv(A_k) @ A_i, axis1=-2,
+                                                                                         axis2=-1)
+        self.I_jk, self.I_kj = np.trace(LA.inv(A_j) @ A_k, axis1=-2, axis2=-1), np.trace(LA.inv(A_k) @ A_j, axis1=-2,
+                                                                                         axis2=-1)
+        self.I_ijk = np.trace((matrix_adjugate(A_j + A_k) - matrix_adjugate(A_j - A_k)) @ A_i, axis1=-2, axis2=-1)
 
     @classmethod
     def from_detection(cls,
