@@ -102,14 +102,14 @@ def crater_camera_homography(p, P_MC):
     return P_MC @ np.concatenate((H_Mi, np.tile(k.T[None, ...], (len(H_Mi), 1, 1))), axis=1)
 
 
-def project_craters(C, p, fov, resolution, T_CM, r_M):
+def project_crater_conics(C, r_craters, fov, resolution, T_CM, r_M):
     """Project crater conics into digital pixel frame. See pages 17 - 25 from [1] for methodology.
 
     Parameters
     ----------
     C : np.ndarray
         Nx3x3 array of crater conics
-    p : np.ndarray
+    r_craters : np.ndarray
         Nx3x1 position vector of craters.
     fov : float, Iterable
         Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
@@ -130,16 +130,40 @@ def project_craters(C, p, fov, resolution, T_CM, r_M):
     .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
     """
 
-    if isinstance(resolution, Iterable):
-        offset = map(lambda x: x / 2, resolution)
-    else:
-        offset = resolution / 2
+    T_MC = LA.inv(T_CM)
+    K = camera_matrix(fov, resolution)
+    P_MC = projection_matrix(K, T_MC, r_M)
+    H_Ci = crater_camera_homography(r_craters, P_MC)
+    return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
+
+
+def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
+    """Project crater centers into digital pixel frame.
+
+    Parameters
+    ----------
+    r_craters : np.ndarray
+        Nx3x1 position vector of craters.
+    fov : float, Iterable
+        Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
+    resolution : int, Iterable
+        Image resolution, if type is Iterable it will be interpreted as (res_x, res_y)
+    T_CM : np.ndarray
+        3x3 matrix representing camera attitude in world reference frame
+    r_M : np.ndarray
+        3x1 position vector of camera
+
+    Returns
+    -------
+    np.ndarray
+        Nx2x1 2D positions of craters in pixel frame
+    """
 
     T_MC = LA.inv(T_CM)
-    K = camera_matrix(fov, offset)
+    K = camera_matrix(fov, resolution)
     P_MC = projection_matrix(K, T_MC, r_M)
-    H_Ci = crater_camera_homography(p, P_MC)
-    return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
+    H_Ci = crater_camera_homography(r_craters, P_MC)
+    return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
 
 
 class Camera:
@@ -153,6 +177,11 @@ class Camera:
                  resolution=const.CAMERA_RESOLUTION,
                  alpha=0
                  ):
+        if len(r.shape) == 1:
+            r = r[:, None]
+        elif len(r.shape) > 2:
+            raise ValueError("Position vector must be 1 or 2-dimensional (3x1)!")
+
         self.r = r
         self.fov = fov
         self.resolution = resolution
@@ -172,12 +201,12 @@ class Camera:
                          lat,
                          long,
                          altitude,
-                         fov,
-                         resolution,
+                         fov=const.CAMERA_FOV,
+                         resolution=const.CAMERA_RESOLUTION,
                          T=None,
-                         Rbody=const.RBODY,
+                         Rbody=const.RMOON,
                          alpha=0,
-                         convert_to_radians=True
+                         convert_to_radians=False
                          ):
         if convert_to_radians:
             lat, long = map(np.radians, (lat, long))
@@ -195,3 +224,8 @@ class Camera:
     def P(self):
         return projection_matrix(self.K(), self.T, self.r)
 
+    def project_crater_conics(self, C, r_craters):
+        return project_crater_conics(C, r_craters, self.fov, self.resolution, self.T, self.r)
+
+    def project_crater_centers(self, r_craters):
+        return project_crater_centers(r_craters, self.fov, self.resolution, self.T, self.r)

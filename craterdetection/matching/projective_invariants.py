@@ -1,89 +1,9 @@
-from functools import partial
-
 import numpy as np
 import numpy.linalg as LA
 
+from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation
 from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
-    cyclic_permutations, enhanced_pattern_shifting
-
-
-def matrix_adjugate(matrix):
-    """Return adjugate matrix [1].
-
-    Parameters
-    ----------
-    matrix : np.ndarray
-        Input matrix
-
-    Returns
-    -------
-    np.ndarray
-        Adjugate of input matrix
-
-    References
-    ----------
-    .. [1] https://en.wikipedia.org/wiki/Adjugate_matrix
-    """
-
-    cofactor = LA.inv(matrix).T * LA.det(matrix)
-    return cofactor.T
-
-
-def scale_det(A):
-    """Rescale matrix such that det(A) = 1.
-
-    Parameters
-    ----------
-    A: np.ndarray
-        Matrix input
-    Returns
-    -------
-    np.ndarray
-        Normalised matrix.
-    """
-
-    if len(A.shape) == 2:
-        return np.cbrt(1. / LA.det(A)) * A
-    elif len(A.shape) == 3:
-        return np.cbrt((1. / LA.det(A)).reshape(np.shape(A)[0], 1, 1)) * A
-    else:
-        raise ValueError("Input must be nxn matrix of kxnxn array of matrices.")
-
-
-def crater_representation(a, b, psi, x=0, y=0):
-    """Returns matrix representation for crater derived from ellipse parameters
-
-    Parameters
-    ----------
-    x
-        X-position in 2D cartesian coordinate system (coplanar)
-    y
-        Y-position in 2D cartesian coordinate system (coplanar)
-    a
-        Semi-major ellipse axis
-    b
-        Semi-minor ellipse axis
-    psi
-        Ellipse angle (radians)
-
-    Returns
-    -------
-    np.ndarray
-        Array of ellipse matrices
-    """
-
-    A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
-    B = 2 * ((b ** 2) - (a ** 2)) * np.cos(psi) * np.sin(psi)
-    C = (a ** 2) * np.cos(psi) ** 2 + b ** 2 * np.sin(psi) ** 2
-    D = -2 * A * x - B * y
-    F = -B * x - 2 * C * y
-    G = A * (x ** 2) + B * x * y + C * (y ** 2) - (a ** 2) * (b ** 2)
-
-    return scale_det(np.array([
-        [A, B / 2, D / 2],
-        [B / 2, C, F / 2],
-        [D / 2, F / 2, G]
-    ]).T)
+    enhanced_pattern_shifting
 
 
 class PermutationInvariant:
@@ -207,6 +127,43 @@ class CoplanarInvariants:
         self.I_ijk = np.trace((matrix_adjugate(A_j + A_k) - matrix_adjugate(A_j - A_k)) @ A_i, axis1=-2, axis2=-1)
 
     @classmethod
+    def from_detection_conics(cls,
+                              A_craters,
+                              crater_triads=None
+                              ):
+
+        if crater_triads is None:
+            n_det = len(A_craters)
+            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
+
+            crater_triads = np.zeros((n_comb, 3), np.int)
+            for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
+                crater_triads[it] = np.array([i, j, k])
+
+
+
+        x_triads, y_triads = x_pix[crater_triads].T, y_pix[crater_triads].T
+        clockwise = is_clockwise(x_triads, y_triads)
+
+        crater_triads_cw = crater_triads.copy()
+        crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
+        x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
+        y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
+
+        if not all_clockwise(x_triads, y_triads):
+            line = is_colinear(x_triads, y_triads)
+            x_triads = x_triads[:, ~line]
+            y_triads = y_triads[:, ~line]
+            crater_triads_cw = crater_triads_cw[~line]
+
+            if not all_clockwise(x_triads, y_triads):
+                print("Failed to order all triads in clockwise order. Removing ccw triads...")
+                clockwise = is_clockwise(x_triads, y_triads)
+                x_triads = x_triads[:, clockwise]
+                y_triads = y_triads[:, clockwise]
+                crater_triads_cw = crater_triads_cw[clockwise]
+
+    @classmethod
     def from_detection(cls,
                        x_pix,
                        y_pix,
@@ -240,42 +197,9 @@ class CoplanarInvariants:
         if convert_to_radians:
             psi_pix = np.radians(psi_pix)
 
-        if crater_triads is None:
-            n_det = len(x_pix)
-            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
+        A_craters = crater_representation(a_pix, b_pix, psi_pix, x_pix, y_pix)
 
-            crater_triads = np.zeros((n_comb, 3), np.int)
-            for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
-                crater_triads[it] = np.array([i, j, k])
-
-        x_triads, y_triads = x_pix[crater_triads].T, y_pix[crater_triads].T
-        clockwise = is_clockwise(x_triads, y_triads)
-
-        crater_triads_cw = crater_triads.copy()
-        crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
-        x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
-        y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
-
-        if not all_clockwise(x_triads, y_triads):
-            line = is_colinear(x_triads, y_triads)
-            x_triads = x_triads[:, ~line]
-            y_triads = y_triads[:, ~line]
-            crater_triads_cw = crater_triads_cw[~line]
-
-            if not all_clockwise(x_triads, y_triads):
-                print("Failed to order all triads in clockwise order. Removing ccw triads...")
-                clockwise = is_clockwise(x_triads, y_triads)
-                x_triads = x_triads[:, clockwise]
-                y_triads = y_triads[:, clockwise]
-                crater_triads_cw = crater_triads_cw[clockwise]
-
-        A_i, A_j, A_k = map(crater_representation, a_pix[crater_triads_cw].T,
-                            b_pix[crater_triads_cw].T,
-                            psi_pix[crater_triads_cw].T,
-                            x_triads,
-                            y_triads)
-
-        return cls(crater_triads_cw, A_i, A_j, A_k)
+        return cls.from_detection_conics(A_craters, crater_triads)
 
     @classmethod
     def match_generator(cls,

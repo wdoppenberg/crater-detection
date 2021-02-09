@@ -11,7 +11,8 @@ from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 import craterdetection.common.constants as const
 from craterdetection.common.camera import crater_camera_homography, camera_matrix
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
-from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
+from craterdetection.matching.projective_invariants import CoplanarInvariants
+from craterdetection.common.conics import crater_representation
 from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
 
 
@@ -55,7 +56,7 @@ def extract_robbins_dataset(df=None, column_keys=None, radians=True):
 
 
 # Deprecated
-def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=const.RBODY):
+def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=const.RMOON):
     avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
                                                 (x, y, z))
     _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
@@ -76,7 +77,7 @@ def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=const.R
     return x_triads, y_triads
 
 
-def gen_ENU_coordinates(lat, long, crater_triads, Rbody=const.RBODY):
+def gen_ENU_coordinates(lat, long, crater_triads, Rbody=const.RMOON):
     """Generate local 2D coordinates for crater triads by constructing a plane normal to the centroid. This is an
     approximation that is only valid for craters that, for practical reasons, can be considered coplanar.
 
@@ -105,7 +106,7 @@ def gen_ENU_coordinates(lat, long, crater_triads, Rbody=const.RBODY):
     crater_triads : np.ndarray
         Crater triad indices (nx3) for slicing arrays
     Rbody : float, optional
-        Body radius, defaults to RBODY [km]
+        Body radius, defaults to RMOON [km]
     Returns
     -------
     x_triad, y_triad : np.ndarray
@@ -143,7 +144,7 @@ class CraterDatabase:
                  minor_axis,
                  psi,
                  crater_id=None,
-                 Rbody=const.RBODY,
+                 Rbody=const.RMOON,
                  radius=const.TRIAD_RADIUS,
                  vcam_alt=const.DB_CAM_ALTITUDE
                  ):
@@ -166,7 +167,7 @@ class CraterDatabase:
         crater_id : np.ndarray, optional
             Crater identifier, defaults to enumerated array over len(lat)
         Rbody : float, optional
-            Body radius, defaults to RBODY [km]
+            Body radius, defaults to RMOON [km]
         radius : float, int
             Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
         vcam_alt : float, int
@@ -267,7 +268,7 @@ class CraterDatabase:
     def from_df(cls,
                 df,
                 column_keys=None,
-                Rbody=const.RBODY,
+                Rbody=const.RMOON,
                 radius=const.TRIAD_RADIUS
                 ):
         """
@@ -280,7 +281,7 @@ class CraterDatabase:
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to RBODY [km]
+            Body radius, defaults to RMOON [km]
         radius :
             Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
 
@@ -309,7 +310,7 @@ class CraterDatabase:
                   diamlims=None,
                   ellipse_limit=const.MAX_ELLIPTICITY,
                   column_keys=None,
-                  Rbody=const.RBODY,
+                  Rbody=const.RMOON,
                   radius=const.TRIAD_RADIUS
                   ):
         """
@@ -327,7 +328,7 @@ class CraterDatabase:
         column_keys : dict
             Mapping for extracting lat, long, major, minor, angle, id from DataFrame columns
         Rbody : float, optional
-            Body radius, defaults to RBODY [km]
+            Body radius, defaults to RMOON [km]
         radius :
             Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
 
