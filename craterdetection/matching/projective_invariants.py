@@ -263,7 +263,11 @@ class CoplanarInvariants:
             crater_triads_cw = crater_triads_cw[~line]
 
             if not all_clockwise(x_triads, y_triads):
-                raise Warning("Failed to order triads in clockwise order.")
+                print("Failed to order all triads in clockwise order. Removing ccw triads...")
+                clockwise = is_clockwise(x_triads, y_triads)
+                x_triads = x_triads[:, clockwise]
+                y_triads = y_triads[:, clockwise]
+                crater_triads_cw = crater_triads_cw[clockwise]
 
         A_i, A_j, A_k = map(crater_representation, a_pix[crater_triads_cw].T,
                             b_pix[crater_triads_cw].T,

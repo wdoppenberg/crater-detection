@@ -8,10 +8,11 @@ import pandas as pd
 import sklearn.neighbors
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 
+import craterdetection.common.constants as const
+from craterdetection.common.camera import crater_camera_homography, camera_matrix
+from craterdetection.common.coordinates import ENU_system, nadir_attitude
 from craterdetection.matching.projective_invariants import crater_representation, CoplanarInvariants
 from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
-from craterdetection.common.coordinates import ENU_system
-import craterdetection.common.constants as const
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None,
@@ -143,12 +144,12 @@ class CraterDatabase:
                  psi,
                  crater_id=None,
                  Rbody=const.RBODY,
-                 radius=const.TRIAD_RADIUS
+                 radius=const.TRIAD_RADIUS,
+                 vcam_alt=const.DB_CAM_ALTITUDE
                  ):
         """Crater database abstraction keyed by crater triads that generate projective invariants using information
         about their elliptical shape and relative positions [1]. Input is a crater dataset [2] that has positional
-        and geometrical (ellipse parameters) information, and generates an array of 7 features per
-        crater triad
+        and geometrical (ellipse parameters) information; output is an array of 7 features per crater triad.
 
         Parameters
         ----------
@@ -166,8 +167,10 @@ class CraterDatabase:
             Crater identifier, defaults to enumerated array over len(lat)
         Rbody : float, optional
             Body radius, defaults to RBODY [km]
-        radius :
+        radius : float, int
             Maximum radius to consider two craters connected, defaults to TRIAD_RADIUS [km]
+        vcam_alt : float, int
+            Altitude of virtual per-triad camera
 
         References
         ----------
@@ -182,6 +185,7 @@ class CraterDatabase:
 
         self.lat = lat
         self.long = long
+        C_cat = crater_representation(major_axis, minor_axis, psi)
 
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, self.lat, self.long))
 
@@ -201,35 +205,59 @@ class CraterDatabase:
         The following returns a nx3 array containing the indices of crater triads
         """
         crater_triads = np.array([c for c in nx.cycle_basis(self._graph) if len(c) == 3])
-        x_triads, y_triads = gen_ENU_coordinates(self.lat, self.long, crater_triads, Rbody)
+
+        """
+        Project crater triads into virtual image plane using homography
+        """
+        r_M_ijk = np.moveaxis(
+            np.concatenate(
+                (x[crater_triads].T[None, ...],
+                 y[crater_triads].T[None, ...],
+                 z[crater_triads].T[None, ...]),
+                axis=0
+            ),
+            0, 2)[..., None]
+        r_centroid = np.mean(r_M_ijk, axis=0)
+        r_vcam = r_centroid + (r_centroid / LA.norm(r_centroid, axis=1)[..., None]) * vcam_alt
+
+        T_CM = np.concatenate(nadir_attitude(r_vcam), axis=-1)
+        if (LA.matrix_rank(T_CM) != 3).any():
+            raise Warning("Invalid camera attitude matrices present!:\n", T_CM)
+
+        K = camera_matrix()
+        P_MC = K @ LA.inv(T_CM) @ np.concatenate((np.tile(np.identity(3), (len(r_vcam), 1, 1)), -r_vcam), axis=2)
+
+        H_C_triads = np.array(list(map(crater_camera_homography, r_M_ijk, repeat(P_MC))))
 
         """
         Ensure all crater triads are clockwise
         """
+        crater_center_triads = np.array(list(
+            map(lambda T: (T @ np.array([0, 0, 1]) / (T @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2], H_C_triads)
+        ))
+        x_triads = crater_center_triads[..., 0]
+        y_triads = crater_center_triads[..., 1]
         clockwise = is_clockwise(x_triads, y_triads)
 
         crater_triads_cw = crater_triads.copy()
         crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
         x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
         y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
+        H_C_triads[[0, 1], np.argwhere(~clockwise)] = H_C_triads[[1, 0], np.argwhere(~clockwise)]
 
         if not all_clockwise(x_triads, y_triads):
             line = is_colinear(x_triads, y_triads)
             x_triads = x_triads[:, ~line]
             y_triads = y_triads[:, ~line]
             crater_triads_cw = crater_triads_cw[~line]
+            H_C_triads = H_C_triads[:, ~line]
 
             if not all_clockwise(x_triads, y_triads):
                 raise RuntimeError("Failed to order triads in clockwise order.")
 
-        """
-        Generate crater matrix representation using ENU coordinate system (with triangle centroid as origin) along 
-        with major- and minor-axis, as well as angle w.r.t East-West direction. 
-        """
-        a_triads, b_triads, psi_triads = map(triad_splice, (major_axis, minor_axis, psi),
-                                             repeat(crater_triads_cw))
+        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads_cw.T)))
+        A_i, A_j, A_k = map(lambda T, A: LA.inv(T).transpose((0, 2, 1)) @ A @ LA.inv(T), H_C_triads, C_triads)
 
-        A_i, A_j, A_k = map(crater_representation, a_triads, b_triads, psi_triads, x_triads, y_triads,)
         invariants = CoplanarInvariants(crater_triads_cw, A_i, A_j, A_k, normalize_det=True)
 
         self.features = invariants.get_pattern()
@@ -336,25 +364,25 @@ class CraterDatabase:
         return triad_splice(self.lat, self.crater_triads[index]), triad_splice(self.long, self.crater_triads[index])
 
     def I_ij(self):
-        return self.features[0]
+        return self.features()[0]
 
     def I_ji(self):
-        return self.features[1]
+        return self.features()[1]
 
     def I_ik(self):
-        return self.features[2]
+        return self.features()[2]
 
     def I_ki(self):
-        return self.features[3]
+        return self.features()[3]
 
     def I_jk(self):
-        return self.features[4]
+        return self.features()[4]
 
     def I_kj(self):
-        return self.features[5]
+        return self.features()[5]
 
     def I_ijk(self):
-        return self.features[6]
+        return self.features()[6]
 
     def __len__(self):
         return len(self.I_ij())

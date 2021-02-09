@@ -12,4 +12,4 @@ from craterdetection.matching import CoplanarInvariants, CraterDatabase
 
 
 if __name__ == "__main__":
-    pass
+    CraterDatabase.from_file()

@@ -12,10 +12,10 @@ def np_swap_columns(arr):
     return arr
 
 
-def cw_or_ccw(x_triads_, y_triads_):
-    return LA.det(np.moveaxis(np.array([[x_triads_[0], y_triads_[0], np.ones_like(x_triads_[0])],
-                                        [x_triads_[1], y_triads_[1], np.ones_like(x_triads_[0])],
-                                        [x_triads_[2], y_triads_[2], np.ones_like(x_triads_[0])]]), -1, 0))
+def cw_or_ccw(x_triads, y_triads):
+    return LA.det(np.moveaxis(np.array([[x_triads[0], y_triads[0], np.ones_like(x_triads[0])],
+                                        [x_triads[1], y_triads[1], np.ones_like(x_triads[0])],
+                                        [x_triads[2], y_triads[2], np.ones_like(x_triads[0])]]), -1, 0))
 
 
 def is_colinear(x_triads_, y_triads_):
