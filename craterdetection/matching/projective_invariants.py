@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 
-from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation
+from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
 from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
     enhanced_pattern_shifting
 
@@ -140,7 +140,9 @@ class CoplanarInvariants:
             for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
                 crater_triads[it] = np.array([i, j, k])
 
-
+        r_pix = conic_center(A_craters)
+        x_pix = r_pix[:, 0]
+        y_pix = r_pix[:, 1]
 
         x_triads, y_triads = x_pix[crater_triads].T, y_pix[crater_triads].T
         clockwise = is_clockwise(x_triads, y_triads)
@@ -162,6 +164,10 @@ class CoplanarInvariants:
                 x_triads = x_triads[:, clockwise]
                 y_triads = y_triads[:, clockwise]
                 crater_triads_cw = crater_triads_cw[clockwise]
+
+        A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
+
+        return cls(crater_triads_cw, A_i, A_j, A_k)
 
     @classmethod
     def from_detection(cls,
@@ -203,15 +209,17 @@ class CoplanarInvariants:
 
     @classmethod
     def match_generator(cls,
-                        x_pix,
-                        y_pix,
-                        a_pix,
-                        b_pix,
-                        psi_pix,
-                        convert_to_radians=True
+                        A_craters=None,
+                        x_pix=None,
+                        y_pix=None,
+                        a_pix=None,
+                        b_pix=None,
+                        psi_pix=None,
+                        convert_to_radians=False
                         ):
         """ Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
-        using Enhanced Pattern Shifting method [2].
+        using Enhanced Pattern Shifting method [2]. Input craters can either be parsed as  parameterized ellipses
+        (x_pix, y_pix, a_pix, b_pix, psi_pix) or as matrix representation of conic.
 
         Parameters
         ----------
@@ -221,8 +229,11 @@ class CoplanarInvariants:
             Crater ellipse axis parameters in image plane
         psi_pix : np.ndarray
             Crater ellipse angle w.r.t. x-direction in image plane
+        A_craters : np.ndarray
+            Crater detections in conic representation.
         convert_to_radians : bool
             Whether to convert psi to radians inside method (default: True)
+
 
         Yields
         ------
@@ -237,17 +248,28 @@ class CoplanarInvariants:
         .. [2] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
 
         """
-        n_det = len(x_pix)
-        for i, j, k in enhanced_pattern_shifting(n_det):
-            crater_triads = np.array([i, j, k])[None, :]
-            yield crater_triads.squeeze(), cls.from_detection(x_pix,
-                                                              y_pix,
-                                                              a_pix,
-                                                              b_pix,
-                                                              psi_pix,
-                                                              convert_to_radians,
-                                                              crater_triads
-                                                              )
+
+        if all(x is not None for x in (x_pix, y_pix, a_pix, b_pix, psi_pix)):
+            n_det = len(x_pix)
+            for i, j, k in enhanced_pattern_shifting(n_det):
+                crater_triads = np.array([i, j, k])[None, :]
+                yield crater_triads.squeeze(), cls.from_detection(x_pix,
+                                                                  y_pix,
+                                                                  a_pix,
+                                                                  b_pix,
+                                                                  psi_pix,
+                                                                  convert_to_radians,
+                                                                  crater_triads
+                                                                  )
+        elif A_craters is not None:
+            n_det = len(A_craters)
+            for i, j, k in enhanced_pattern_shifting(n_det):
+                crater_triads = np.array([i, j, k])[None, :]
+                yield crater_triads.squeeze(), cls.from_detection_conics(A_craters, crater_triads)
+
+        else:
+            raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
+
 
     def get_pattern(self, permutation_invariant=False):
         """Get matching pattern using either permutation invariant features (eq. 134 from [1]) or raw projective
@@ -269,7 +291,7 @@ class CoplanarInvariants:
         """
 
         if permutation_invariant:
-            return np.column_stack((
+            out = np.column_stack((
                 PermutationInvariant.F(self.I_ij, self.I_jk, self.I_ki).T,
                 PermutationInvariant.F1(self.I_ji, self.I_kj, self.I_ik),
                 PermutationInvariant.G_tilde(self.I_ij, self.I_jk, self.I_ki, self.I_ji, self.I_kj, self.I_ik).T,
@@ -277,7 +299,7 @@ class CoplanarInvariants:
             )).T
 
         else:
-            return np.column_stack((
+            out = np.column_stack((
                 self.I_ij,
                 self.I_ji,
                 self.I_ik,
@@ -286,6 +308,11 @@ class CoplanarInvariants:
                 self.I_kj,
                 self.I_ijk,
             ))
+
+        if len(self) == 1:
+            out = out.squeeze()
+
+        return out
 
     def __len__(self):
         return len(self.I_ij)

@@ -92,18 +92,14 @@ def conic_center(A):
 
 def ellipse_axes(A):
     if len(A.shape) == 3:
-        lambdas = LA.eigvals(A[:, :2, :2]) / (-LA.det(A) / LA.det(A[:, :2, :2]))[:, None]
+        lambdas = LA.eigvalsh(A[:, :2, :2]) / (-LA.det(A) / LA.det(A[:, :2, :2]))[:, None]
         axes = np.sqrt(1 / lambdas)
-        swap = np.argwhere(axes[:, 0] < axes[:, 1])
-        axes[swap, [0, 1]] = axes[swap, [1, 0]]
-        return axes[:, 0], axes[:, 1]
+        return axes[:, 1], axes[:, 0]
 
     elif len(A.shape) == 2:
-        lambdas = LA.eigvals(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))[:, None]
+        lambdas = LA.eigvalsh(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))[:, None]
         axes = np.sqrt(1 / lambdas)
-        if axes[0] < axes[1]:
-            axes[[0, 1]] = axes[[1, 0]]
-        return axes[0], axes[1]
+        return axes[1], axes[0]
 
     else:
         raise ValueError("Conic (array) must be of shape (Nx)3x3!")
