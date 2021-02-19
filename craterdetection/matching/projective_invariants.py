@@ -134,7 +134,7 @@ class CoplanarInvariants:
 
         if crater_triads is None:
             n_det = len(A_craters)
-            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) / 6)
+            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) // 6)
 
             crater_triads = np.zeros((n_comb, 3), np.int)
             for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
@@ -152,60 +152,11 @@ class CoplanarInvariants:
         x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
         y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
 
-        if not all_clockwise(x_triads, y_triads):
-            line = is_colinear(x_triads, y_triads)
-            x_triads = x_triads[:, ~line]
-            y_triads = y_triads[:, ~line]
-            crater_triads_cw = crater_triads_cw[~line]
-
-            if not all_clockwise(x_triads, y_triads):
-                print("Failed to order all triads in clockwise order. Removing ccw triads...")
-                clockwise = is_clockwise(x_triads, y_triads)
-                x_triads = x_triads[:, clockwise]
-                y_triads = y_triads[:, clockwise]
-                crater_triads_cw = crater_triads_cw[clockwise]
+        crater_triads_cw = crater_triads_cw[~is_colinear(x_triads, y_triads)]
 
         A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
 
         return cls(crater_triads_cw, A_i, A_j, A_k)
-
-    @classmethod
-    def from_detection(cls,
-                       x_pix,
-                       y_pix,
-                       a_pix,
-                       b_pix,
-                       psi_pix,
-                       convert_to_radians=True,
-                       crater_triads=None
-                       ):
-        """
-
-        Parameters
-        ----------
-        x_pix, y_pix : np.ndarray
-            Crater center positions in image plane
-        a_pix, b_pix : np.ndarray
-            Crater ellipse axis parameters in image plane
-        psi_pix : np.ndarray
-            Crater ellipse angle w.r.t. x-direction in image plane
-        convert_to_radians : bool
-            Whether to convert psi to radians inside method (default: True)
-        crater_triads : np.ndarray
-            nx3 array of indices for crater triad(s)
-
-        Returns
-        -------
-        CoplanarInvariants
-
-        """
-
-        if convert_to_radians:
-            psi_pix = np.radians(psi_pix)
-
-        A_craters = crater_representation(a_pix, b_pix, psi_pix, x_pix, y_pix)
-
-        return cls.from_detection_conics(A_craters, crater_triads)
 
     @classmethod
     def match_generator(cls,
@@ -217,7 +168,7 @@ class CoplanarInvariants:
                         psi_pix=None,
                         convert_to_radians=False
                         ):
-        """ Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
+        """Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
         using Enhanced Pattern Shifting method [2]. Input craters can either be parsed as  parameterized ellipses
         (x_pix, y_pix, a_pix, b_pix, psi_pix) or as matrix representation of conic.
 
@@ -246,30 +197,34 @@ class CoplanarInvariants:
         ----------
         .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
         .. [2] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
-
         """
 
-        if all(x is not None for x in (x_pix, y_pix, a_pix, b_pix, psi_pix)):
-            n_det = len(x_pix)
-            for i, j, k in enhanced_pattern_shifting(n_det):
-                crater_triads = np.array([i, j, k])[None, :]
-                yield crater_triads.squeeze(), cls.from_detection(x_pix,
-                                                                  y_pix,
-                                                                  a_pix,
-                                                                  b_pix,
-                                                                  psi_pix,
-                                                                  convert_to_radians,
-                                                                  crater_triads
-                                                                  )
-        elif A_craters is not None:
-            n_det = len(A_craters)
-            for i, j, k in enhanced_pattern_shifting(n_det):
-                crater_triads = np.array([i, j, k])[None, :]
-                yield crater_triads.squeeze(), cls.from_detection_conics(A_craters, crater_triads)
+        if A_craters is not None:
+            pass
+
+        elif all(x is not None for x in (x_pix, y_pix, a_pix, b_pix, psi_pix)):
+            if convert_to_radians:
+                psi_pix = np.radians(psi_pix)
+
+            A_craters = crater_representation(a_pix, b_pix, psi_pix, x_pix, y_pix)
 
         else:
             raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
 
+        n_det = len(A_craters)
+        for i, j, k in enhanced_pattern_shifting(n_det):
+
+            crater_triad = np.array([i, j, k])
+            r_pix = conic_center(A_craters[crater_triad])
+            x_pix = r_pix[:, 0]
+            y_pix = r_pix[:, 1]
+
+            if not is_clockwise(x_pix, y_pix):
+                crater_triad[[0, 1]] = crater_triad[[1, 0]]
+
+            A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triad)))
+
+            yield crater_triad, cls(crater_triad[None, :], A_i, A_j, A_k).get_pattern()
 
     def get_pattern(self, permutation_invariant=False):
         """Get matching pattern using either permutation invariant features (eq. 134 from [1]) or raw projective
@@ -301,18 +256,18 @@ class CoplanarInvariants:
         else:
             out = np.column_stack((
                 self.I_ij,
-                self.I_ji,
-                self.I_ik,
-                self.I_ki,
                 self.I_jk,
+                self.I_ki,
+                self.I_ji,
                 self.I_kj,
+                self.I_ik,
                 self.I_ijk,
             ))
 
         if len(self) == 1:
-            out = out.squeeze()
-
-        return out
+            return out.squeeze()
+        else:
+            return out
 
     def __len__(self):
         return len(self.I_ij)

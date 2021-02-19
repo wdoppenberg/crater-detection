@@ -42,24 +42,31 @@ def all_clockwise(x_triads_, y_triads_):
     return np.logical_and.reduce(is_clockwise(x_triads_, y_triads_))
 
 
-def cyclic_permutations(it):
+def cyclic_permutations(it, step=1):
     """Returns cyclic permutations for iterable.
 
     Parameters
     ----------
-    it
-        Iterable
+    it : iterable object
+    step : int, optional
 
     Yields
     -------
     Cyclic permutation of it
     """
-
     yield it
-    for k in range(1, len(it)):
-        p = it[k:] + it[:k]
-        if p == it:
-            break
+    for k in range(step, len(it), step):
+        if isinstance(it, list):
+            p = it[k:] + it[:k]
+            if p == it:
+                break
+        elif isinstance(it, np.ndarray):
+            p = np.concatenate((it[k:], it[:k]))
+            if (p == it).all():
+                break
+        else:
+            raise ValueError("Iterable has to be of type list or np.ndarray!")
+
         yield p
 
 
@@ -108,6 +115,12 @@ def enhanced_pattern_shifting(n):
     ----------
     .. [1] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
     """
+    if n < 3:
+        raise ValueError("Number of detections must be equal or higher than 3!")
+
+    if n == 3:
+        yield 0, 1, 2
+
     for dj in range(1, n-2):
         for dk in range(1, n-dj-1):
             for ii in range(0, 3):

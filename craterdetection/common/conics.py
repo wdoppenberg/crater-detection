@@ -1,5 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy import linalg as LA
+
+import craterdetection.common.constants as const
 
 
 def matrix_adjugate(matrix):
@@ -114,3 +117,28 @@ def ellipse_angle(A):
 
     else:
         raise ValueError("Conic (array) must be of shape (Nx)3x3!")
+
+
+def plot_conics(A, gridsize=250, resolution=const.CAMERA_RESOLUTION, figsize=(15, 15), ax=None):
+    x_plot = np.linspace(0, resolution[0], gridsize)
+    y_plot = np.linspace(0, resolution[1], gridsize)
+    x_plot, y_plot = np.meshgrid(x_plot, y_plot)
+
+    xy_homogeneous = np.concatenate(
+        (
+            x_plot.ravel()[None, :],
+            y_plot.ravel()[None, :],
+            np.ones_like(x_plot.ravel()[None, :])
+        ),
+        axis=0
+    ).T[..., None]
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize, subplot_kw={'aspect': 'equal'})
+
+    # Set axes according to camera pixel space convention
+    ax.set_xlim(0, resolution[0])
+    ax.set_ylim(resolution[1], 0)
+
+    for a_i in A:
+        c = xy_homogeneous.transpose(0, 2, 1) @ a_i @ xy_homogeneous
+        ax.contour(x_plot, y_plot, c.reshape(x_plot.shape), [0], colors='r')

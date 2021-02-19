@@ -7,13 +7,15 @@ import numpy.linalg as LA
 import pandas as pd
 import sklearn.neighbors
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
+from sklearn.neighbors import radius_neighbors_graph
 
 import craterdetection.common.constants as const
 from craterdetection.common.camera import crater_camera_homography, camera_matrix
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
 from craterdetection.matching.projective_invariants import CoplanarInvariants
-from craterdetection.common.conics import crater_representation
-from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise
+from craterdetection.common.conics import crater_representation, conic_center
+from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
+    get_cliques_by_length
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None,
@@ -191,10 +193,10 @@ class CraterDatabase:
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, self.lat, self.long))
 
         """
-        Construct adjacency matrix to generate Graph instance
+        Construct adjacency matrix and generate Graph instance
         """
-        self._adjacency_matrix = sklearn.neighbors.radius_neighbors_graph(np.array([x, y, z]).T, radius,
-                                                                          mode='connectivity',
+        self._adjacency_matrix = radius_neighbors_graph(np.array([x, y, z]).T, radius,
+                                                                          mode='distance',
                                                                           metric='euclidean', n_jobs=-1)
 
         self._graph = nx.from_scipy_sparse_matrix(self._adjacency_matrix)
@@ -205,7 +207,7 @@ class CraterDatabase:
         
         The following returns a nx3 array containing the indices of crater triads
         """
-        crater_triads = np.array([c for c in nx.cycle_basis(self._graph) if len(c) == 3])
+        crater_triads = np.array(get_cliques_by_length(self._graph, 3))
 
         """
         Project crater triads into virtual image plane using homography
@@ -230,36 +232,34 @@ class CraterDatabase:
 
         H_C_triads = np.array(list(map(crater_camera_homography, r_M_ijk, repeat(P_MC))))
 
+        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
+        A_i, A_j, A_k = map(lambda T, A: LA.inv(T).transpose((0, 2, 1)) @ A @ LA.inv(T), H_C_triads, C_triads)
+
         """
         Ensure all crater triads are clockwise
         """
-        crater_center_triads = np.array(list(
-            map(lambda T: (T @ np.array([0, 0, 1]) / (T @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2], H_C_triads)
-        ))
-        x_triads = crater_center_triads[..., 0]
-        y_triads = crater_center_triads[..., 1]
-        clockwise = is_clockwise(x_triads, y_triads)
+        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
 
-        crater_triads_cw = crater_triads.copy()
-        crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
-        x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
-        y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
+        A_i, A_j, A_k = map(lambda T, C: LA.inv(T).transpose((0, 2, 1)) @ C @ LA.inv(T), H_C_triads, C_triads)
+        r_i, r_j, r_k = map(conic_center, (A_i, A_j, A_k))
+
+        cw_value = LA.det(np.moveaxis(np.array([[r_i[:, 0], r_i[:, 1], np.ones_like(r_i[:, 0])],
+                                                [r_j[:, 0], r_j[:, 1], np.ones_like(r_i[:, 0])],
+                                                [r_k[:, 0], r_k[:, 1], np.ones_like(r_i[:, 0])]]), -1, 0))
+        clockwise = cw_value < 0
+        line = cw_value == 0
+        clockwise = clockwise[~line]
+
+        crater_triads = crater_triads[~line]
+        crater_triads[np.argwhere(~clockwise), [0, 1]] = crater_triads[np.argwhere(~clockwise), [1, 0]]
+
+        H_C_triads = H_C_triads[:, ~line]
         H_C_triads[[0, 1], np.argwhere(~clockwise)] = H_C_triads[[1, 0], np.argwhere(~clockwise)]
 
-        if not all_clockwise(x_triads, y_triads):
-            line = is_colinear(x_triads, y_triads)
-            x_triads = x_triads[:, ~line]
-            y_triads = y_triads[:, ~line]
-            crater_triads_cw = crater_triads_cw[~line]
-            H_C_triads = H_C_triads[:, ~line]
+        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
+        A_i, A_j, A_k = map(lambda T, C: LA.inv(T).transpose((0, 2, 1)) @ C @ LA.inv(T), H_C_triads, C_triads)
 
-            if not all_clockwise(x_triads, y_triads):
-                raise RuntimeError("Failed to order triads in clockwise order.")
-
-        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads_cw.T)))
-        A_i, A_j, A_k = map(lambda T, A: LA.inv(T).transpose((0, 2, 1)) @ A @ LA.inv(T), H_C_triads, C_triads)
-
-        invariants = CoplanarInvariants(crater_triads_cw, A_i, A_j, A_k, normalize_det=True)
+        invariants = CoplanarInvariants(crater_triads, A_i, A_j, A_k, normalize_det=True)
 
         self.features = invariants.get_pattern()
         self.crater_triads = invariants.crater_triads
@@ -307,7 +307,7 @@ class CraterDatabase:
                   path=None,
                   latlims=None,
                   longlims=None,
-                  diamlims=None,
+                  diamlims=const.DIAMLIMS,
                   ellipse_limit=const.MAX_ELLIPTICITY,
                   column_keys=None,
                   Rbody=const.RMOON,
@@ -364,29 +364,8 @@ class CraterDatabase:
 
         return triad_splice(self.lat, self.crater_triads[index]), triad_splice(self.long, self.crater_triads[index])
 
-    def I_ij(self):
-        return self.features()[0]
-
-    def I_ji(self):
-        return self.features()[1]
-
-    def I_ik(self):
-        return self.features()[2]
-
-    def I_ki(self):
-        return self.features()[3]
-
-    def I_jk(self):
-        return self.features()[4]
-
-    def I_kj(self):
-        return self.features()[5]
-
-    def I_ijk(self):
-        return self.features()[6]
-
     def __len__(self):
-        return len(self.I_ij())
+        return len(self.features)
 
 
 if __name__ == "__main__":
