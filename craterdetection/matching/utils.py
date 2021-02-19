@@ -118,13 +118,10 @@ def enhanced_pattern_shifting(n):
     if n < 3:
         raise ValueError("Number of detections must be equal or higher than 3!")
 
-    if n == 3:
-        yield 0, 1, 2
-
-    for dj in range(1, n-2):
-        for dk in range(1, n-dj-1):
-            for ii in range(0, 3):
-                for i in range(ii, n-dj-dk, 3):
+    for dj in range(1, n-1):
+        for dk in range(1, n-dj):
+            for ii in range(1, 4):
+                for i in range(ii, n-dj-dk+1, 3):
                     j = i + dj
                     k = j + dk
-                    yield i, j, k
+                    yield i-1, j-1, k-1

@@ -119,7 +119,13 @@ def ellipse_angle(A):
         raise ValueError("Conic (array) must be of shape (Nx)3x3!")
 
 
-def plot_conics(A, gridsize=250, resolution=const.CAMERA_RESOLUTION, figsize=(15, 15), ax=None):
+def plot_conics(A,
+                gridsize=250,
+                resolution=const.CAMERA_RESOLUTION,
+                figsize=(15, 15),
+                plot_centers=False,
+                ax=None,
+                rim_color='r'):
     x_plot = np.linspace(0, resolution[0], gridsize)
     y_plot = np.linspace(0, resolution[1], gridsize)
     x_plot, y_plot = np.meshgrid(x_plot, y_plot)
@@ -141,4 +147,11 @@ def plot_conics(A, gridsize=250, resolution=const.CAMERA_RESOLUTION, figsize=(15
 
     for a_i in A:
         c = xy_homogeneous.transpose(0, 2, 1) @ a_i @ xy_homogeneous
-        ax.contour(x_plot, y_plot, c.reshape(x_plot.shape), [0], colors='r')
+        ax.contour(x_plot, y_plot, c.reshape(x_plot.shape), [0], colors=rim_color)
+
+    if plot_centers:
+        crater_centers = conic_center(A)
+        for k, c_i in enumerate(crater_centers):
+            x, y = c_i[0], c_i[1]
+            if x <= resolution[0] and y <=resolution[1]:
+                ax.text(x, y, str(k))
