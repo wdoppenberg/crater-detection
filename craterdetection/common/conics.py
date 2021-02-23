@@ -100,7 +100,7 @@ def ellipse_axes(A):
         return axes[:, 1], axes[:, 0]
 
     elif len(A.shape) == 2:
-        lambdas = LA.eigvalsh(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))[:, None]
+        lambdas = LA.eigvalsh(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))
         axes = np.sqrt(1 / lambdas)
         return axes[1], axes[0]
 
@@ -110,10 +110,10 @@ def ellipse_axes(A):
 
 def ellipse_angle(A):
     if len(A.shape) == 3:
-        return np.pi + np.arctan(2 * A[:, 1, 0] / (A[:, 0, 0] - A[:, 1, 1])) / 2
+        return np.arctan2(2 * A[:, 1, 0], (A[:, 0, 0] - A[:, 1, 1])) / 2
 
     elif len(A.shape) == 2:
-        return np.pi + np.arctan(2 * A[1, 0] / (A[0, 0] - A[1, 1])) / 2
+        return np.arctan2(2 * A[1, 0], (A[0, 0] - A[1, 1])) / 2
 
     else:
         raise ValueError("Conic (array) must be of shape (Nx)3x3!")
@@ -153,5 +153,5 @@ def plot_conics(A,
         crater_centers = conic_center(A)
         for k, c_i in enumerate(crater_centers):
             x, y = c_i[0], c_i[1]
-            if x <= resolution[0] and y <=resolution[1]:
+            if 0 <= x <= resolution[0] and 0 <= y <= resolution[1]:
                 ax.text(x, y, str(k))

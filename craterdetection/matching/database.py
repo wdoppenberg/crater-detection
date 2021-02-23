@@ -48,7 +48,7 @@ def extract_robbins_dataset(df=None, column_keys=None, radians=True):
 
     lat, long = df[[column_keys['lat'], column_keys['long']]].to_numpy().T
     major, minor = df[[column_keys['major'], column_keys['minor']]].to_numpy().T
-    psi = df['DIAM_ELLI_ANGLE_IMG'].to_numpy()
+    psi = df[column_keys['angle']].to_numpy()
     if radians:
         lat, long = map(np.radians, (lat, long))  # ALWAYS CONVERT TO RADIANS
         psi = np.radians(psi)

@@ -188,9 +188,8 @@ class Camera:
         self.alpha = alpha
 
         if T is None:
-            X_ax_cam, Y_ax_cam, Z_ax_cam = nadir_attitude(r)
+            self.T = np.concatenate(nadir_attitude(r), axis=-1)
 
-            self.T = np.concatenate((X_ax_cam, Y_ax_cam, Z_ax_cam), axis=-1)
             if LA.matrix_rank(self.T) != 3:
                 raise ValueError("Invalid camera attitude matrix!:\n", self.T)
         else:
