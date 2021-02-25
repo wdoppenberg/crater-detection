@@ -46,18 +46,18 @@ def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alph
                      [0, 0, 1]])
 
 
-def projection_matrix(K, T, r):
+def projection_matrix(K, T_CM, r_M):
     """Return Projection matrix [1] according to:
 
-    .. math:: ^x\mathbf{P}_C = \mathbf{K} [ ^x\mathbf{T}_C & -r_C]
+    .. math:: ^x\mathbf{P}_C = \mathbf{K} [ ^x\mathbf{T^C_M}_C & -r_C]
 
     Parameters
     ----------
     K : np.ndarray
         3x3 camera matrix
-    T : np.ndarray
+    T_CM : np.ndarray
         3x3 attitude transformation matrix into camera frame.
-    r : np.ndarray
+    r_M : np.ndarray
         3x1 camera position in world reference frame
 
     Returns
@@ -74,18 +74,17 @@ def projection_matrix(K, T, r):
     camera_matrix
 
     """
-    r_C = T @ r
-    return K @ np.concatenate((T, -r_C), axis=1)
+    return K @ LA.inv(T_CM) @ np.concatenate((np.identity(3), -r_M), axis=1)
 
 
-def crater_camera_homography(p, P_MC):
+def crater_camera_homography(r_craters, P_MC):
     """Calculate homography between crater-plane and camera reference frame.
 
-    .. math:: \mathbf{H}_{C_i} =  ^\mathcal{M}\mathbf{P}_\mathcal{C} [[H_{M_i}], [k^T]]
+    .. math:: \mathbf{H}_{C_i} =  ^\mathcal{M}\mathbf{P}_\mathcal{C_craters} [[H_{M_i}], [k^T]]
 
     Parameters
     ----------
-    p : np.ndarray
+    r_craters : np.ndarray
         (Nx)3x1 position vector of craters.
     P_MC : np.ndarray
         (Nx)3x4 projection matrix from selenographic frame to camera pixel frame.
@@ -97,17 +96,17 @@ def crater_camera_homography(p, P_MC):
     S = np.concatenate((np.identity(2), np.zeros((1, 2))), axis=0)
     k = np.array([0, 0, 1])[:, None]
 
-    H_Mi = np.concatenate((np.concatenate(ENU_system(p), axis=-1) @ S, p), axis=-1)
+    H_Mi = np.concatenate((np.concatenate(ENU_system(r_craters), axis=-1) @ S, r_craters), axis=-1)
 
     return P_MC @ np.concatenate((H_Mi, np.tile(k.T[None, ...], (len(H_Mi), 1, 1))), axis=1)
 
 
-def project_crater_conics(C, r_craters, fov, resolution, T_CM, r_M):
+def project_crater_conics(C_craters, r_craters, fov, resolution, T_CM, r_M):
     """Project crater conics into digital pixel frame. See pages 17 - 25 from [1] for methodology.
 
     Parameters
     ----------
-    C : np.ndarray
+    C_craters : np.ndarray
         Nx3x3 array of crater conics
     r_craters : np.ndarray
         Nx3x1 position vector of craters.
@@ -134,7 +133,7 @@ def project_crater_conics(C, r_craters, fov, resolution, T_CM, r_M):
     K = camera_matrix(fov, resolution)
     P_MC = projection_matrix(K, T_MC, r_M)
     H_Ci = crater_camera_homography(r_craters, P_MC)
-    return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
+    return LA.inv(H_Ci).transpose((0, 2, 1)) @ C_craters @ LA.inv(H_Ci)
 
 
 def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
@@ -214,17 +213,14 @@ class Camera:
         return cls(r_M, T, fov, resolution, alpha)
 
     def K(self):
-        if isinstance(self.resolution, Iterable):
-            offset = map(lambda x: x / 2, self.resolution)
-        else:
-            offset = self.resolution / 2
-        return camera_matrix(self.fov, offset, self.alpha)
+        return camera_matrix(self.fov, self.resolution, self.alpha)
 
     def P(self):
         return projection_matrix(self.K(), self.T, self.r)
 
     def project_crater_conics(self, C, r_craters):
-        return project_crater_conics(C, r_craters, self.fov, self.resolution, self.T, self.r)
+        H_Ci = crater_camera_homography(r_craters, self.P())
+        return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
 
     def project_crater_centers(self, r_craters):
         return project_crater_centers(r_craters, self.fov, self.resolution, self.T, self.r)
