@@ -56,7 +56,7 @@ def projection_matrix(K, T_CM, r_M):
     K : np.ndarray
         3x3 camera matrix
     T_CM : np.ndarray
-        3x3 attitude transformation matrix into camera frame.
+        3x3 attitude matrix of camera in selenographic frame.
     r_M : np.ndarray
         3x1 camera position in world reference frame
 
@@ -129,9 +129,8 @@ def project_crater_conics(C_craters, r_craters, fov, resolution, T_CM, r_M):
     .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
     """
 
-    T_MC = LA.inv(T_CM)
     K = camera_matrix(fov, resolution)
-    P_MC = projection_matrix(K, T_MC, r_M)
+    P_MC = projection_matrix(K, T_CM, r_M)
     H_Ci = crater_camera_homography(r_craters, P_MC)
     return LA.inv(H_Ci).transpose((0, 2, 1)) @ C_craters @ LA.inv(H_Ci)
 
@@ -158,9 +157,8 @@ def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
         Nx2x1 2D positions of craters in pixel frame
     """
 
-    T_MC = LA.inv(T_CM)
     K = camera_matrix(fov, resolution)
-    P_MC = projection_matrix(K, T_MC, r_M)
+    P_MC = projection_matrix(K, T_CM, r_M)
     H_Ci = crater_camera_homography(r_craters, P_MC)
     return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
 
@@ -223,4 +221,5 @@ class Camera:
         return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
 
     def project_crater_centers(self, r_craters):
-        return project_crater_centers(r_craters, self.fov, self.resolution, self.T, self.r)
+        H_Ci = crater_camera_homography(r_craters, self.P())
+        return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]

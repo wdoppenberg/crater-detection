@@ -125,3 +125,4 @@ def enhanced_pattern_shifting(n):
                     j = i + dj
                     k = j + dk
                     yield i-1, j-1, k-1
+
