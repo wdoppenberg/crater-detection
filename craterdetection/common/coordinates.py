@@ -74,7 +74,7 @@ def nadir_attitude(r):
     if len(r.shape) == 3:
         d_i = -(r / LA.norm(r, ord=2, axis=(1, 2))[:, None, None])
 
-        e_i = np.cross(k[None, ...], r, axis=1)
+        e_i = np.cross(k[None, ...], -d_i, axis=1)
         e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
 
         s_i = np.cross(d_i, e_i, axis=1)

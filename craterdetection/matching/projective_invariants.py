@@ -2,8 +2,7 @@ import numpy as np
 import numpy.linalg as LA
 
 from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
-from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
-    enhanced_pattern_shifting
+from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting
 
 
 class PermutationInvariant:
@@ -166,6 +165,7 @@ class CoplanarInvariants:
                         a_pix=None,
                         b_pix=None,
                         psi_pix=None,
+                        batch_size=1,
                         convert_to_radians=False
                         ):
         """Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
@@ -174,14 +174,16 @@ class CoplanarInvariants:
 
         Parameters
         ----------
+        A_craters : np.ndarray
+            Crater detections in conic representation.
         x_pix, y_pix : np.ndarray
             Crater center positions in image plane
         a_pix, b_pix : np.ndarray
             Crater ellipse axis parameters in image plane
         psi_pix : np.ndarray
             Crater ellipse angle w.r.t. x-direction in image plane
-        A_craters : np.ndarray
-            Crater detections in conic representation.
+        batch_size : int
+            Return single detection feature, or create a batch for array-values
         convert_to_radians : bool
             Whether to convert psi to radians inside method (default: True)
 
@@ -212,19 +214,50 @@ class CoplanarInvariants:
             raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
 
         n_det = len(A_craters)
-        for i, j, k in enhanced_pattern_shifting(n_det):
+        if batch_size == 1:
+            for i, j, k in enhanced_pattern_shifting(n_det):
 
-            crater_triad = np.array([i, j, k])
-            r_pix = conic_center(A_craters[crater_triad])
-            x_pix = r_pix[:, 0]
-            y_pix = r_pix[:, 1]
+                crater_triad = np.array([i, j, k])
+                r_pix = conic_center(A_craters[crater_triad])
+                x_pix = r_pix[:, 0]
+                y_pix = r_pix[:, 1]
 
-            if not is_clockwise(x_pix, y_pix):
-                crater_triad[[0, 1]] = crater_triad[[1, 0]]
+                if not is_clockwise(x_pix, y_pix):
+                    crater_triad[[0, 1]] = crater_triad[[1, 0]]
 
-            A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triad)))
+                A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triad)))
 
-            yield crater_triad, cls(crater_triad[None, :], A_i, A_j, A_k).get_pattern()
+                yield crater_triad, cls(crater_triad[None, :], A_i, A_j, A_k).get_pattern()
+
+        elif batch_size > 1:
+            n_comb = int((n_det * (n_det - 1) * (n_det - 2)) // 6)
+
+            crater_triads = np.zeros((batch_size, 3), np.int)
+            eps_generator = enhanced_pattern_shifting(n_det)
+            for it in range(n_comb // batch_size):
+                for index, (i, j, k) in enumerate(eps_generator):
+                    crater_triads[index] = np.array([i, j, k])
+                    if index >= batch_size - 1:
+                        break
+
+                r_pix = conic_center(A_craters)
+                x_pix = r_pix[:, 0]
+                y_pix = r_pix[:, 1]
+
+                x_triads, y_triads = x_pix[crater_triads].T, y_pix[crater_triads].T
+                clockwise = is_clockwise(x_triads, y_triads)
+
+                crater_triads_cw = crater_triads.copy()
+                crater_triads_cw[~clockwise] = np_swap_columns(crater_triads[~clockwise])
+                x_triads[:, ~clockwise] = np_swap_columns(x_triads.T[~clockwise]).T
+                y_triads[:, ~clockwise] = np_swap_columns(y_triads.T[~clockwise]).T
+
+                crater_triads_cw = crater_triads_cw[~is_colinear(x_triads, y_triads)]
+
+                A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
+                yield crater_triads, cls(crater_triads_cw, A_i, A_j, A_k).get_pattern()
+        else:
+            raise ValueError("batch_size must be 1 or more!")
 
     def get_pattern(self, permutation_invariant=False):
         """Get matching pattern using either permutation invariant features (eq. 134 from [1]) or raw projective
