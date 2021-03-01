@@ -5,17 +5,15 @@ import networkx as nx
 import numpy as np
 import numpy.linalg as LA
 import pandas as pd
-import sklearn.neighbors
 from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 from sklearn.neighbors import radius_neighbors_graph
 
 import craterdetection.common.constants as const
 from craterdetection.common.camera import crater_camera_homography, camera_matrix
+from craterdetection.common.conics import crater_representation, conic_center
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
 from craterdetection.matching.projective_invariants import CoplanarInvariants
-from craterdetection.common.conics import crater_representation, conic_center
-from craterdetection.matching.utils import triad_splice, np_swap_columns, is_colinear, is_clockwise, all_clockwise, \
-    get_cliques_by_length
+from craterdetection.matching.utils import triad_splice, get_cliques_by_length, cyclic_permutations
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None,
@@ -188,16 +186,18 @@ class CraterDatabase:
 
         self.lat = lat
         self.long = long
-        C_cat = crater_representation(major_axis, minor_axis, psi)
+        self.C_cat = crater_representation(major_axis, minor_axis, psi)
 
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, self.lat, self.long))
+
+        self.r_craters = np.array((x, y, z)).T[..., None]
 
         """
         Construct adjacency matrix and generate Graph instance
         """
         self._adjacency_matrix = radius_neighbors_graph(np.array([x, y, z]).T, radius,
-                                                                          mode='distance',
-                                                                          metric='euclidean', n_jobs=-1)
+                                                        mode='distance',
+                                                        metric='euclidean', n_jobs=-1)
 
         self._graph = nx.from_scipy_sparse_matrix(self._adjacency_matrix)
 
@@ -232,13 +232,10 @@ class CraterDatabase:
 
         H_C_triads = np.array(list(map(crater_camera_homography, r_M_ijk, repeat(P_MC))))
 
-        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
-        A_i, A_j, A_k = map(lambda T, A: LA.inv(T).transpose((0, 2, 1)) @ A @ LA.inv(T), H_C_triads, C_triads)
-
         """
         Ensure all crater triads are clockwise
         """
-        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
+        C_triads = np.array(list(map(lambda vertex: self.C_cat[vertex], crater_triads.T)))
 
         A_i, A_j, A_k = map(lambda T, C: LA.inv(T).transpose((0, 2, 1)) @ C @ LA.inv(T), H_C_triads, C_triads)
         r_i, r_j, r_k = map(conic_center, (A_i, A_j, A_k))
@@ -248,15 +245,15 @@ class CraterDatabase:
                                                 [r_k[:, 0], r_k[:, 1], np.ones_like(r_i[:, 0])]]), -1, 0))
         clockwise = cw_value < 0
         line = cw_value == 0
+
         clockwise = clockwise[~line]
-
         crater_triads = crater_triads[~line]
-        crater_triads[np.argwhere(~clockwise), [0, 1]] = crater_triads[np.argwhere(~clockwise), [1, 0]]
-
         H_C_triads = H_C_triads[:, ~line]
+
+        crater_triads[np.argwhere(~clockwise), [0, 1]] = crater_triads[np.argwhere(~clockwise), [1, 0]]
         H_C_triads[[0, 1], np.argwhere(~clockwise)] = H_C_triads[[1, 0], np.argwhere(~clockwise)]
 
-        C_triads = np.array(list(map(lambda vertex: C_cat[vertex], crater_triads.T)))
+        C_triads = np.array(list(map(lambda vertex: self.C_cat[vertex], crater_triads.T)))
         A_i, A_j, A_k = map(lambda T, C: LA.inv(T).transpose((0, 2, 1)) @ C @ LA.inv(T), H_C_triads, C_triads)
 
         invariants = CoplanarInvariants(crater_triads, A_i, A_j, A_k, normalize_det=True)
@@ -363,6 +360,39 @@ class CraterDatabase:
             return triad_splice(self.lat, self.crater_triads), triad_splice(self.long, self.crater_triads)
 
         return triad_splice(self.lat, self.crater_triads[index]), triad_splice(self.long, self.crater_triads[index])
+
+    def match_detections(self, A_detections, threshold=0.02, max_iter=50, unique_matches=2, top_n_matches=10):
+        matches = {detection_key: [] for detection_key, _ in enumerate(A_detections)}
+
+        for i, (crater_triad, features) in enumerate(CoplanarInvariants.match_generator(A_craters=A_detections)):
+            for order in cyclic_permutations(np.arange(3)):
+                order_full = np.append(np.concatenate((order, order + 3)), -1)
+                diff = np.mean(np.abs(((db.features - features[order_full]) / features[order_full])), axis=1)
+
+                if np.min(diff) < threshold:
+                    min_n = np.argpartition(diff, 5)[:top_n_matches]
+                    for min_idx in min_n:
+                        for detection_idx, db_idx in zip(crater_triad[order], db.crater_triads[min_idx]):
+                            matches[detection_idx] += [db_idx]
+                    break
+
+            if i >= max_iter:
+                break
+        matches_val = dict()
+
+        for k, v in matches.items():
+            if len(v) >= 2 * top_n_matches:
+                match_idx, counts = np.unique(np.array(v), return_counts=True)
+                ord = np.argsort(counts)
+                if counts[ord][-1] > 4:
+                    print(k, match_idx[ord][-1].item())
+                    matches_val[k] = match_idx[ord][-1].item()
+
+        A_craters_det = A_detections[list(matches_val.keys())]
+        C_craters_det = self.C_cat[list(matches_val.values())]
+        r_craters_det = self.r_craters[list(matches_val.values())]
+
+        return A_craters_det, r_craters_det, C_craters_det
 
     def __len__(self):
         return len(self.features)

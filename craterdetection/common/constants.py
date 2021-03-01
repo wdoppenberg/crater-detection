@@ -1,3 +1,5 @@
+from pathlib import Path
+
 """
 Project constants
 """
@@ -9,3 +11,7 @@ MAX_ELLIPTICITY = 1.1  # Limit dataset to craters with an ellipticity <= 1.1]
 CAMERA_FOV = 45  # Camera field-of-view (degrees)
 CAMERA_RESOLUTION = [1000, 1000]
 DB_CAM_ALTITUDE = 300
+
+
+SPICE_BASE_URL = 'https://naif.jpl.nasa.gov/pub/naif/'
+KERNEL_ROOT = Path('data/spice_kernels')
