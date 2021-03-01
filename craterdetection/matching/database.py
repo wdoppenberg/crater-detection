@@ -361,18 +361,18 @@ class CraterDatabase:
 
         return triad_splice(self.lat, self.crater_triads[index]), triad_splice(self.long, self.crater_triads[index])
 
-    def match_detections(self, A_detections, threshold=0.02, max_iter=50, unique_matches=2, top_n_matches=10):
+    def match_detections(self, A_detections, threshold=0.05, max_iter=50, unique_matches=4, top_n_matches=10):
         matches = {detection_key: [] for detection_key, _ in enumerate(A_detections)}
 
         for i, (crater_triad, features) in enumerate(CoplanarInvariants.match_generator(A_craters=A_detections)):
             for order in cyclic_permutations(np.arange(3)):
                 order_full = np.append(np.concatenate((order, order + 3)), -1)
-                diff = np.mean(np.abs(((db.features - features[order_full]) / features[order_full])), axis=1)
+                diff = np.mean(np.abs(((self.features - features[order_full]) / features[order_full])), axis=1)
 
                 if np.min(diff) < threshold:
                     min_n = np.argpartition(diff, 5)[:top_n_matches]
                     for min_idx in min_n:
-                        for detection_idx, db_idx in zip(crater_triad[order], db.crater_triads[min_idx]):
+                        for detection_idx, db_idx in zip(crater_triad[order], self.crater_triads[min_idx]):
                             matches[detection_idx] += [db_idx]
                     break
 
@@ -384,7 +384,7 @@ class CraterDatabase:
             if len(v) >= 2 * top_n_matches:
                 match_idx, counts = np.unique(np.array(v), return_counts=True)
                 ord = np.argsort(counts)
-                if counts[ord][-1] > 4:
+                if counts[ord][-1] > unique_matches:
                     print(k, match_idx[ord][-1].item())
                     matches_val[k] = match_idx[ord][-1].item()
 
