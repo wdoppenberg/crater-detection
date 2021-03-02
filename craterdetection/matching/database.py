@@ -378,19 +378,21 @@ class CraterDatabase:
 
             if i >= max_iter:
                 break
+
         matches_val = dict()
 
         for k, v in matches.items():
             if len(v) >= 2 * top_n_matches:
                 match_idx, counts = np.unique(np.array(v), return_counts=True)
-                ord = np.argsort(counts)
-                if counts[ord][-1] > unique_matches:
-                    print(k, match_idx[ord][-1].item())
-                    matches_val[k] = match_idx[ord][-1].item()
+                count_order = np.argsort(counts)
+                if counts[count_order][-1] > unique_matches:
+                    matches_val[k] = match_idx[count_order][-1].item()
 
         A_craters_det = A_detections[list(matches_val.keys())]
         C_craters_det = self.C_cat[list(matches_val.values())]
         r_craters_det = self.r_craters[list(matches_val.values())]
+
+        # TODO: Implement 'no-matches' handling
 
         return A_craters_det, r_craters_det, C_craters_det
 
