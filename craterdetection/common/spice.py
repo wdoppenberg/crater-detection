@@ -31,13 +31,13 @@ def download_kernel(file_path, base_url=const.SPICE_BASE_URL, base_folder=const.
         print(f"Error: \n{url} could not be found: ", e)
 
 
-def setup_spice(kernels: List[str]):
+def setup_spice(kernels: List[str], base_url=const.SPICE_BASE_URL, base_folder=const.KERNEL_ROOT):
     kernels = list(map(Path, kernels))
 
     for k in kernels:
-        download_kernel(k)
+        download_kernel(k, base_url, base_folder)
 
-    spice.furnsh(list(map(lambda x: str(_KERNEL_ROOT / x), kernels)))
+    spice.furnsh(list(map(lambda x: str((const.KERNEL_ROOT / x).resolve()), kernels)))
 
 
 def get_sun_pos(date):

@@ -1,5 +1,7 @@
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import EllipseCollection
 from numpy import linalg as LA
 
 import craterdetection.common.constants as const
@@ -119,25 +121,15 @@ def ellipse_angle(A):
         raise ValueError("Conic (array) must be of shape (Nx)3x3!")
 
 
-def plot_conics(A,
-                gridsize=250,
+def plot_conics(A_craters,
                 resolution=const.CAMERA_RESOLUTION,
                 figsize=(15, 15),
                 plot_centers=False,
                 ax=None,
                 rim_color='r'):
-    x_plot = np.linspace(0, resolution[0], gridsize)
-    y_plot = np.linspace(0, resolution[1], gridsize)
-    x_plot, y_plot = np.meshgrid(x_plot, y_plot)
-
-    xy_homogeneous = np.concatenate(
-        (
-            x_plot.ravel()[None, :],
-            y_plot.ravel()[None, :],
-            np.ones_like(x_plot.ravel()[None, :])
-        ),
-        axis=0
-    ).T[..., None]
+    a_proj, b_proj = ellipse_axes(A_craters)
+    psi_proj = ellipse_angle(A_craters)
+    r_pix_proj = conic_center(A_craters)
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize, subplot_kw={'aspect': 'equal'})
 
@@ -145,13 +137,35 @@ def plot_conics(A,
     ax.set_xlim(0, resolution[0])
     ax.set_ylim(resolution[1], 0)
 
-    for a_i in A:
-        c = xy_homogeneous.transpose(0, 2, 1) @ a_i @ xy_homogeneous
-        ax.contour(x_plot, y_plot, c.reshape(x_plot.shape), [0], colors=rim_color)
+    ec = EllipseCollection(a_proj, b_proj, np.degrees(psi_proj), units='xy', offsets=r_pix_proj,
+                           transOffset=ax.transData, facecolors="None", edgecolors=rim_color)
+    ax.add_collection(ec)
 
     if plot_centers:
-        crater_centers = conic_center(A)
+        crater_centers = conic_center(A_craters)
         for k, c_i in enumerate(crater_centers):
             x, y = c_i[0], c_i[1]
             if 0 <= x <= resolution[0] and 0 <= y <= resolution[1]:
                 ax.text(x, y, str(k))
+
+
+def generate_mask(A_craters,
+                  resolution=const.CAMERA_RESOLUTION
+                  ):
+    a_proj, b_proj = ellipse_axes(A_craters)
+    psi_proj = ellipse_angle(A_craters)
+    r_pix_proj = conic_center(A_craters)
+
+    mask = np.zeros(resolution)
+
+    for a, b, x, y, psi in zip(a_proj / 2, b_proj / 2, *r_pix_proj.T, psi_proj):
+        mask = cv2.ellipse(mask,
+                           tuple(map(round, (x, y))),
+                           tuple(map(round, (a, b))),
+                           round(np.degrees(psi)),
+                           0,
+                           360,
+                           (255, 255, 255),
+                           1)
+    return mask
+
