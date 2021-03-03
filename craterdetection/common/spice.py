@@ -3,6 +3,7 @@ import urllib
 from pathlib import Path
 from typing import List
 
+import numpy as np
 import spiceypy as spice
 
 import craterdetection.common.constants as const
@@ -48,3 +49,9 @@ def get_sun_pos(date):
 def get_earth_pos(date):
     et = spice.str2et(str(date))
     return spice.spkpos('earth', et, 'iau_moon', 'lt+s', 'moon')
+
+
+def get_sol_incidence(date, r):
+    et = spice.str2et(str(date))
+    _, _, _, sol_incidence, _ = spice.ilumin('ellipsoid', 'moon', et, 'iau_moon', 'lt+s', 'sun', r)
+    return np.degrees(sol_incidence)

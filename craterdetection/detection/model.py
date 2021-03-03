@@ -3,7 +3,7 @@ from .components import *
 
 
 class DeepMoon(nn.Module):
-    def __init__(self, n_channels=1, n_classes=1, upsample=True, drop=0.0):
+    def __init__(self, n_channels=1, n_classes=1, upsample=True, drop=0.0, sigmoid=True):
         super(DeepMoon, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
@@ -15,7 +15,7 @@ class DeepMoon(nn.Module):
         self.up1 = Up(896, 224, upsample, drop)
         self.up2 = Up(448, 112, upsample, drop)
         self.up3 = Up(224, 112, upsample, drop)
-        self.outc = OutConv(112, n_classes)
+        self.outc = OutConv(112, n_classes, sigmoid)
 
     def forward(self, x):
         x1 = self.inc(x)

@@ -3,6 +3,7 @@ from collections.abc import Iterable
 import numpy as np
 import numpy.linalg as LA
 from astropy.coordinates import spherical_to_cartesian
+from scipy.spatial.transform import Rotation
 
 import craterdetection.common.constants as const
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
@@ -31,15 +32,15 @@ def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alph
     """
 
     if isinstance(resolution, Iterable):
-        x_0, y_0 = map(lambda x: x/2, resolution)
+        x_0, y_0 = map(lambda x: x / 2, resolution)
     else:
-        x_0 = resolution/2
-        y_0 = resolution/2
+        x_0 = resolution / 2
+        y_0 = resolution / 2
 
     if isinstance(fov, Iterable):
-        f_x, f_y = map(lambda x, fov_: x / np.tan(np.radians(fov_/2)), (x_0, y_0), fov)
+        f_x, f_y = map(lambda x, fov_: x / np.tan(np.radians(fov_ / 2)), (x_0, y_0), fov)
     else:
-        f_x, f_y = map(lambda x: x / np.tan(np.radians(fov/2)), (x_0, y_0))
+        f_x, f_y = map(lambda x: x / np.tan(np.radians(fov / 2)), (x_0, y_0))
 
     return np.array([[f_x, alpha, x_0],
                      [0, f_y, y_0],
@@ -167,6 +168,7 @@ class Camera:
     """
     Camera data class with associated projection methods.
     """
+
     def __init__(self,
                  r,
                  T=None,
@@ -223,3 +225,22 @@ class Camera:
     def project_crater_centers(self, r_craters):
         H_Ci = crater_camera_homography(r_craters, self.P())
         return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
+
+    def rotate(self, axis: str, angle: float, degrees: bool = True, reset_first: bool = False):
+        if axis not in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
+            raise ValueError("axis must be 'x', 'y', 'z', or 'pitch', 'yaw', 'roll'")
+
+        if axis == 'roll':
+            axis = 'z'
+        elif axis == 'pitch':
+            axis = 'x'
+        elif axis == 'yaw':
+            axis = 'y'
+
+        if reset_first:
+            self.point_nadir()
+
+        self.T = (Rotation.from_matrix(self.T) * Rotation.from_euler(axis, angle, degrees=degrees)).as_matrix()
+
+    def point_nadir(self):
+        self.T = np.concatenate(nadir_attitude(self.r), axis=-1)

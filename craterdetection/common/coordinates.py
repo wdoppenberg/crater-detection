@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 
+import craterdetection.common.constants as const
 
 def ENU_system(r):
     """Return local East-North-Up (ENU) coordinate system for point defined by p.
@@ -91,3 +92,21 @@ def nadir_attitude(r):
         raise ValueError(f"Input shape is invalid! -> {r.shape}")
 
     return e_i, s_i, d_i
+
+
+def suborbital_coords(r, R_body=const.RMOON):
+    """Return coordinates directly below orbital position.
+
+    Parameters
+    ----------
+    r : np.ndarray
+        Position above body (e.g. Moon)
+    R_body : np.ndarray
+        Radius of body in km, defaults to const.RMOON
+
+    Returns
+    -------
+    np.ndarray
+        Suborbital coordinates
+    """
+    return (r / LA.norm(r)) * R_body
