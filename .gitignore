@@ -135,4 +135,4 @@ dmypy.json
 
 craterdetection/detection/VPU/IR/
 /blobs/*.onnx
-/mlruns
+/mlflow
