@@ -16,9 +16,15 @@ from craterdetection.matching.projective_invariants import CoplanarInvariants
 from craterdetection.matching.utils import triad_splice, get_cliques_by_length, cyclic_permutations
 
 
-def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv", latlims=None, longlims=None,
-                 diamlims=const.DIAMLIMS, ellipse_limit=const.MAX_ELLIPTICITY):
+def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",
+                 latlims=None,
+                 longlims=None,
+                 diamlims=const.DIAMLIMS,
+                 ellipse_limit=const.MAX_ELLIPTICITY,
+                 arc_lims=0.8
+                 ):
     df_craters = pd.read_csv(path)
+    df_craters.query("ARC_IMG > @arc_lims", inplace=True)
 
     if latlims:
         lat0, lat1 = latlims
