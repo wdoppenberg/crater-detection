@@ -1,12 +1,17 @@
 import math
+import time
+from random import choice
 
 import h5py
+import mlflow
+import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim import Optimizer
-
+from torch.cuda.amp import autocast
+from torch.optim import Optimizer, Adam, SGD
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
+from tqdm.auto import tqdm as tq
 
 
 class CraterDataset(Dataset):
@@ -22,22 +27,27 @@ class CraterDataset(Dataset):
     def __init__(self,
                  file_path,
                  group,
-                 cuda=True
+                 device=None
                  ):
         self.file_path = file_path
         self.group = group
         self.dataset = None
-        self.cuda = cuda
+        self.device = device
 
     def __getitem__(self, idx):
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, 'r')
 
-        images = torch.tensor(self.dataset[self.group]["images"][idx])
-        masks = torch.tensor(self.dataset[self.group]["masks"][idx]).type(torch.float32)
+        images = self.dataset[self.group]["images"][idx]
+        masks = self.dataset[self.group]["masks"][idx]
 
-        if self.cuda:
-            return images.cuda(), masks.cuda()
+        images = (images / np.max(images, axis=(1, 2))[..., None, None]) * 255
+
+        images = torch.as_tensor(images)
+        masks = torch.as_tensor(masks, dtype=torch.float32)
+
+        if self.device is not None:
+            return images.to(self.device), masks.to(self.device)
         else:
             return images, masks
 
@@ -180,52 +190,188 @@ def f_score(pr, gt, beta=1, eps=1e-7, threshold=None, activation='sigmoid'):
     return score
 
 
-class DiceLoss(nn.Module):
-    __name__ = 'dice_loss'
+def dice_coefficient(pred, target, eps=1e-7):
+    num = pred.size(0)
+    m1 = pred.view(num, -1)  # Flatten
+    m2 = target.view(num, -1)  # Flatten
+    intersection = (m1 * m2).sum()
 
-    def __init__(self, eps=1e-7, activation='sigmoid'):
+    return (2. * intersection + eps) / (m1.sum() + m2.sum() + eps)
+
+
+class TverskyLoss(nn.Module):
+    def __init__(self,
+                 alpha=0.5,
+                 beta=0.5,
+                 eps=1.0
+                 ):
         super().__init__()
-        self.activation = activation
+        self.alpha = alpha
+        self.beta = beta
         self.eps = eps
 
-    def forward(self, y_pr, y_gt):
-        return 1 - f_score(y_pr, y_gt, beta=1.,
-                           eps=self.eps, threshold=None,
-                           activation=self.activation)
+    def forward(self, inputs, targets):
+        inputs = nn.Sigmoid()(inputs)
+
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        TP = (inputs * targets).sum()
+        FP = ((1 - targets) * inputs).sum()
+        FN = (targets * (1 - inputs)).sum()
+
+        loss = (TP + self.eps) / (TP + self.alpha * FP + self.beta * FN + self.eps)
+
+        return 1 - loss
 
 
-class BCEDiceLoss(DiceLoss):
-    __name__ = 'bce_dice_loss'
+class SoftDiceLoss(nn.Module):
+    def __init__(self, eps=1e-7):
+        super(SoftDiceLoss, self).__init__()
+        self.eps = eps
 
-    def __init__(self, eps=1e-7, activation='sigmoid', lambda_dice=1.0, lambda_bce=1.0):
-        super().__init__(eps, activation)
+    def forward(self, logits, targets):
+        probs = nn.Sigmoid()(logits)
+        num = targets.size(0)  # Number of batches
 
-        if activation is None:
-            self.bce = nn.BCELoss(reduction='mean')
-        else:
-            self.bce = nn.BCEWithLogitsLoss(reduction='mean')
-        self.lambda_dice = lambda_dice
+        score = dice_coefficient(probs, targets, self.eps)
+        score = 1 - score.sum() / num
+        return score
+
+
+class BCEDiceLoss(nn.Module):
+    def __init__(self,
+                 lambda_bce=1.0,
+                 lambda_dice=1.0,
+                 eps=1e-7
+                 ):
+        super().__init__()
         self.lambda_bce = lambda_bce
+        self.lambda_dice = lambda_dice
+        self.eps = eps
+        self.bce = nn.BCEWithLogitsLoss()
+        self.dice = SoftDiceLoss(self.eps)
 
-    def forward(self, y_pr, y_gt):
-        dice = super().forward(y_pr, y_gt)
-        bce = self.bce(y_pr, y_gt)
-        return (self.lambda_dice * dice) + (self.lambda_bce * bce)
+    def forward(self, logits, targets):
+        return (self.bce(logits, targets) * self.lambda_bce) + \
+               (self.dice(logits, targets) * self.lambda_dice)
 
 
-def dice_no_threshold(
-        outputs: torch.Tensor,
-        targets: torch.Tensor,
-        eps: float = 1e-7,
-        threshold: float = None,
-):
-    outputs = nn.Sigmoid()(outputs)
+lr_list = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4]
+momentum_list = [0.9, 0.7, 0.5, 0.3, 0.1, 0.]
 
-    if threshold is not None:
-        outputs = (outputs > threshold).float()
+lambda_dice_list = [1.0, 1.5, 2.0, 2.5]
+lambda_bce_list = [0., 0.5, 1.0]
+eps_list = [0., 0.5, 1.0, 1.5]
 
-    intersection = torch.sum(targets * outputs)
-    union = torch.sum(targets) + torch.sum(outputs)
-    dice = 2 * intersection / (union + eps)
+loss_function_list = [
+    SoftDiceLoss,
+    nn.BCEWithLogitsLoss
+]
 
-    return dice
+optimizer_list = [
+    Adam,
+    RAdam,
+    SGD
+]
+
+
+def get_trial(model):
+    lr = choice(lr_list)
+    momentum = choice(momentum_list)
+
+    loss_function = choice(loss_function_list)
+    lf_params = {}
+    # if loss_function == BCEDiceLoss:
+    #     lambda_dice = choice(lambda_dice_list)
+    #     lambda_bce = choice(lambda_bce_list)
+    #     eps = choice(eps_list)
+    #     lf_params = dict(lambda_dice=lambda_dice, lambda_bce=lambda_bce, eps=eps)
+    loss_function = loss_function(**lf_params)
+
+    optimizer = choice(optimizer_list)
+    opt_params = dict(lr=lr)
+    if optimizer == SGD:
+        opt_params['momentum'] = momentum
+    optimizer = optimizer(model.parameters(), **opt_params)
+
+    return loss_function, lf_params, optimizer, opt_params
+
+
+def hypersearch(model_callable, num_epochs, num_trials, train_loader, validation_loader):
+    with mlflow.start_run(run_name="Hyperparameter Search"):
+        for _ in range(num_trials):
+            with mlflow.start_run(nested=True):
+                model = model_callable()
+                model.cuda()
+
+                loss_function, lf_params, optimizer, opt_params = get_trial(model)
+
+                mlflow.log_param('optimizer', type(optimizer).__name__)
+                mlflow.log_param('loss_function', type(loss_function).__name__)
+                for k, v in opt_params.items():
+                    mlflow.log_param(k, v)
+
+                train_loss_list = []
+                valid_loss_list = []
+                dice_score_list = []
+
+                for e in range(1, num_epochs + 1):
+                    print(f'\n-----Epoch {e} started-----\n')
+
+                    since = time.time()
+
+                    train_loss, valid_loss, dice_score = 0, 0, 0
+
+                    model.train()
+
+                    bar = tq(train_loader, desc=f"Training [{e}]", postfix={"train_loss": 0.0})
+                    for batch, (images, masks) in enumerate(bar, 1):
+                        optimizer.zero_grad()
+
+                        with autocast():
+                            pred = model(images)
+                            loss = loss_function(pred, masks)
+
+                        loss.backward()
+                        train_loss += loss.item() * images.size(0)
+
+                        optimizer.step()
+                        bar.set_postfix(ordered_dict={"train_loss": loss.item()})
+
+                    model.eval()
+                    del images, masks
+                    with torch.no_grad():
+                        bar = tq(validation_loader, desc=f"Validation [{e}]",
+                                 postfix={"valid_loss": 0.0, "dice_score": 0.0})
+                        for images, masks in bar:
+                            with autocast():
+                                pred = model(images)
+                                loss = loss_function(pred, masks)
+
+                            valid_loss += loss.item() * images.size(0)
+                            dice_cof = dice_coefficient(pred, masks).item()
+                            dice_score += dice_cof * images.size(0)
+                            bar.set_postfix(ordered_dict={"valid_loss": loss.item(), "dice_score": dice_cof})
+                    # calculate average losses
+                    train_loss = train_loss / len(train_loader.dataset)
+                    valid_loss = valid_loss / len(validation_loader.dataset)
+                    dice_score = dice_score / len(validation_loader.dataset)
+                    train_loss_list.append(train_loss)
+                    valid_loss_list.append(valid_loss)
+                    dice_score_list.append(dice_score)
+
+                    mlflow.log_metric("train_loss", train_loss, step=e)
+                    mlflow.log_metric("valid_loss", valid_loss, step=e)
+                    mlflow.log_metric("dice_score", dice_score, step=e)
+
+                    time_elapsed = time.time() - since
+                    print(
+                        f"\nSummary:\n",
+                        f"\tEpoch: {e}/{num_epochs}\n",
+                        f"\tAverage train loss: {train_loss}\n",
+                        f"\tAverage validation loss: {valid_loss}\n",
+                        f"\tAverage Dice score: {dice_score}\n",
+                        f"\tDuration: {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
+                    )
+                    print(f'-----Epoch {e} finished.-----\n')

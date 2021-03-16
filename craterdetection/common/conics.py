@@ -151,7 +151,8 @@ def plot_conics(A_craters,
 
 def generate_mask(A_craters,
                   resolution=const.CAMERA_RESOLUTION,
-                  scale=True
+                  filled=False,
+                  instancing=True
                   ):
     a_proj, b_proj = map(lambda x: x / 2, ellipse_axes(A_craters))
     psi_proj = np.degrees(ellipse_angle(A_craters))
@@ -162,17 +163,32 @@ def generate_mask(A_craters,
 
     mask = np.zeros(resolution)
 
-    for a, b, x, y, psi in zip(a_proj, b_proj, *r_pix_proj.T, psi_proj):
-        if a >= 1 and b >= 1:
-            mask = cv2.ellipse(mask,
-                               (x, y),
-                               (a, b),
-                               psi,
-                               0,
-                               360,
-                               (255, 255, 255),
-                               1)
-    if scale:
-        return mask / 255
+    if filled:
+        thickness = -1
     else:
-        return mask
+        thickness = 1
+
+    if instancing:
+        for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj)):
+            if a >= 1 and b >= 1:
+                mask = cv2.ellipse(mask,
+                                   (x, y),
+                                   (a, b),
+                                   psi,
+                                   0,
+                                   360,
+                                   i,
+                                   thickness)
+    else:
+        for a, b, x, y, psi in zip(a_proj, b_proj, *r_pix_proj.T, psi_proj):
+            if a >= 1 and b >= 1:
+                mask = cv2.ellipse(mask,
+                                   (x, y),
+                                   (a, b),
+                                   psi,
+                                   0,
+                                   360,
+                                   1,
+                                   thickness)
+
+    return mask
