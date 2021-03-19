@@ -166,7 +166,8 @@ class CoplanarInvariants:
                         b_pix=None,
                         psi_pix=None,
                         batch_size=1,
-                        convert_to_radians=False
+                        convert_to_radians=False,
+                        max_iter=None
                         ):
         """Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
         using Enhanced Pattern Shifting method [2]. Input craters can either be parsed as  parameterized ellipses
@@ -186,7 +187,8 @@ class CoplanarInvariants:
             Return single detection feature, or create a batch for array-values
         convert_to_radians : bool
             Whether to convert psi to radians inside method (default: True)
-
+        max_iter : int
+            Maximum iterations
 
         Yields
         ------
@@ -203,19 +205,20 @@ class CoplanarInvariants:
 
         if A_craters is not None:
             pass
-
         elif all(x is not None for x in (x_pix, y_pix, a_pix, b_pix, psi_pix)):
             if convert_to_radians:
                 psi_pix = np.radians(psi_pix)
 
             A_craters = crater_representation(a_pix, b_pix, psi_pix, x_pix, y_pix)
-
         else:
             raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
 
+        if max_iter is None:
+            max_iter = np.inf
+
         n_det = len(A_craters)
         if batch_size == 1:
-            for i, j, k in enhanced_pattern_shifting(n_det):
+            for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
 
                 crater_triad = np.array([i, j, k])
                 r_pix = conic_center(A_craters[crater_triad])
@@ -229,10 +232,13 @@ class CoplanarInvariants:
 
                 yield crater_triad, cls(crater_triad[None, :], A_i, A_j, A_k).get_pattern()
 
+                if it >= max_iter:
+                    break
+
         elif batch_size > 1:
             n_comb = int((n_det * (n_det - 1) * (n_det - 2)) // 6)
 
-            crater_triads = np.zeros((batch_size, 3), np.int)
+            crater_triads = np.zeros((batch_size, 3), int)
             eps_generator = enhanced_pattern_shifting(n_det)
             for it in range(n_comb // batch_size):
                 for index, (i, j, k) in enumerate(eps_generator):
@@ -256,6 +262,9 @@ class CoplanarInvariants:
 
                 A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
                 yield crater_triads, cls(crater_triads_cw, A_i, A_j, A_k).get_pattern()
+
+                if it >= max_iter:
+                    break
         else:
             raise ValueError("batch_size must be 1 or more!")
 

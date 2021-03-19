@@ -152,7 +152,7 @@ def plot_conics(A_craters,
 def generate_mask(A_craters,
                   resolution=const.CAMERA_RESOLUTION,
                   filled=False,
-                  instancing=True
+                  instancing=False
                   ):
     a_proj, b_proj = map(lambda x: x / 2, ellipse_axes(A_craters))
     psi_proj = np.degrees(ellipse_angle(A_craters))
