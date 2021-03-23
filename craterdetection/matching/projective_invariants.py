@@ -2,7 +2,8 @@ import numpy as np
 import numpy.linalg as LA
 
 from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
-from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting
+from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting, \
+    shift_nd
 
 
 class PermutationInvariant:
@@ -166,8 +167,9 @@ class CoplanarInvariants:
                         b_pix=None,
                         psi_pix=None,
                         batch_size=1,
-                        convert_to_radians=False,
-                        max_iter=None
+                        convert_to_radians=True,
+                        max_iter=10000,
+                        sort_ij=True
                         ):
         """Generator function that yields crater triad and its associated projective invariants [1]. Triads are formed
         using Enhanced Pattern Shifting method [2]. Input craters can either be parsed as  parameterized ellipses
@@ -188,7 +190,9 @@ class CoplanarInvariants:
         convert_to_radians : bool
             Whether to convert psi to radians inside method (default: True)
         max_iter : int
-            Maximum iterations
+            Maximum iterations (default: 10000)
+        sort_ij : bool
+            Whether to sort triad features with I_ij being the lowest absolute value
 
         Yields
         ------
@@ -213,9 +217,6 @@ class CoplanarInvariants:
         else:
             raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
 
-        if max_iter is None:
-            max_iter = np.inf
-
         n_det = len(A_craters)
         if batch_size == 1:
             for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
@@ -229,14 +230,26 @@ class CoplanarInvariants:
                     crater_triad[[0, 1]] = crater_triad[[1, 0]]
 
                 A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triad)))
+                out = cls(crater_triad[None, :], A_i, A_j, A_k)
+                features = out.get_pattern()
 
-                yield crater_triad, cls(crater_triad[None, :], A_i, A_j, A_k).get_pattern()
+                if sort_ij:
+                    ij_idx = np.abs(features[:3]).argmin()
+                    order = np.roll(np.arange(3), -ij_idx)
+                    order_full = np.append(np.concatenate((order, order + 3)), -1)
+
+                    yield crater_triad[order], features[order_full]
+                else:
+                    yield crater_triad, features
 
                 if it >= max_iter:
                     break
 
         elif batch_size > 1:
             n_comb = int((n_det * (n_det - 1) * (n_det - 2)) // 6)
+
+            if batch_size > n_comb:
+                batch_size = n_comb
 
             crater_triads = np.zeros((batch_size, 3), int)
             eps_generator = enhanced_pattern_shifting(n_det)
@@ -261,7 +274,24 @@ class CoplanarInvariants:
                 crater_triads_cw = crater_triads_cw[~is_colinear(x_triads, y_triads)]
 
                 A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
-                yield crater_triads, cls(crater_triads_cw, A_i, A_j, A_k).get_pattern()
+                out = cls(crater_triads_cw, A_i, A_j, A_k)
+                features = out.get_pattern()
+
+                if sort_ij:
+                    ij_idx = np.abs(features[:, :3]).argmin(1)
+                    features = np.concatenate((
+                        shift_nd(features[:, :3], -ij_idx),
+                        shift_nd(features[:, 3:6], -ij_idx),
+                        features[:, [-1]]
+                    ),
+                        axis=-1
+                    )
+                    crater_triads_sorted = shift_nd(out.crater_triads, -ij_idx)
+
+                    yield crater_triads_sorted, features
+
+                else:
+                    yield out.crater_triads, features
 
                 if it >= max_iter:
                     break

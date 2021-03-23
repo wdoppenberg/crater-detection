@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 import networkx as nx
+from numba import njit
 
 
 def triad_splice(arr, triads):
@@ -126,3 +127,10 @@ def enhanced_pattern_shifting(n):
                     k = j + dk
                     yield i-1, j-1, k-1
 
+
+@njit
+def shift_nd(arr: np.ndarray, shift: np.ndarray):
+    out = np.zeros_like(arr, arr.dtype)
+    for ii in range(arr.shape[0]):
+        out[ii] = np.roll(arr[ii], shift[ii])
+    return out

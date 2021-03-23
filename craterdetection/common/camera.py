@@ -3,6 +3,7 @@ from collections.abc import Iterable
 import numpy as np
 import numpy.linalg as LA
 from astropy.coordinates import spherical_to_cartesian
+from numba import njit
 from scipy.spatial.transform import Rotation
 
 import craterdetection.common.constants as const
