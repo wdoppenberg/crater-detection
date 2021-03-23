@@ -14,7 +14,7 @@ from craterdetection.common.camera import crater_camera_homography, camera_matri
 from craterdetection.common.conics import crater_representation, conic_center
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
 from craterdetection.matching.projective_invariants import CoplanarInvariants
-from craterdetection.matching.utils import triad_splice, get_cliques_by_length, cyclic_permutations, shift_nd
+from craterdetection.matching.utils import triad_splice, get_cliques_by_length, shift_nd
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",
@@ -200,7 +200,7 @@ class CraterDatabase:
 
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, self._lat, self._long))
 
-        self.r_craters = np.array((x, y, z)).T[..., None]
+        self._r_craters = np.array((x, y, z)).T[..., None]
 
         """
         Construct adjacency matrix and generate Graph instance
@@ -283,11 +283,11 @@ class CraterDatabase:
             self._crater_triads = shift_nd(self._crater_triads, -ij_idx)
 
             too_close = np.logical_or.reduce(
-                        (
-                            np.abs((self._features[:, 0] - self._features[:, 2]) / self._features[:, 0]) < 0.1,
-                            np.abs((self._features[:, 0] - self._features[:, 1]) / self._features[:, 0]) < 0.1
-                        )
-                    )
+                (
+                    np.abs((self._features[:, 0] - self._features[:, 2]) / self._features[:, 0]) < 0.1,
+                    np.abs((self._features[:, 0] - self._features[:, 1]) / self._features[:, 0]) < 0.1
+                )
+            )
 
             self._features = np.concatenate(
                 (
@@ -404,10 +404,11 @@ class CraterDatabase:
               k=1,
               return_distance=False
               ):
+
         if k == 1:
             k = [k]
 
-        dist, entries = self._kdtree.query(key, k=k, workers=-1)
+        dist, entries = self._kdtree.query(key, k=k, p=2, workers=-1)
 
         if return_distance:
             return entries, dist
@@ -415,8 +416,9 @@ class CraterDatabase:
             return entries
 
     def __getitem__(self, item):
-        if item == Ellipsis:
-            return
+        ct = self._crater_triads[item]
+
+        return self._r_craters[ct], self._C_cat[ct]
 
     def __len__(self):
         return len(self._features)

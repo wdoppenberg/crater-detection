@@ -213,6 +213,12 @@ class Camera:
         r_M = np.array(spherical_to_cartesian(Rbody + altitude, lat, long))[:, None]
         return cls(r_M, T, fov, resolution, alpha)
 
+    @classmethod
+    def match_projector(cls,
+                        cam):
+        dummy_position = np.zeros_like(cam.r, np.float64)
+        return cls(dummy_position, cam.T, cam.fov, cam.resolution)
+
     def K(self):
         return camera_matrix(self.fov, self.resolution, self.alpha)
 
