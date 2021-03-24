@@ -3,6 +3,7 @@ import numpy.linalg as LA
 
 import craterdetection.common.constants as const
 
+
 def ENU_system(r):
     """Return local East-North-Up (ENU) coordinate system for point defined by p.
 
@@ -35,7 +36,16 @@ def ENU_system(r):
     """
     k = np.array([0, 0, 1])[:, None]
 
-    if len(r.shape) == 3:
+    if len(r.shape) == 4:
+        u_i = r / LA.norm(r, ord=2, axis=(-2, -1))[:, None, :, None]
+
+        e_i = np.cross(k[None, ...], r, axis=-2)
+        e_i /= LA.norm(e_i, ord=2, axis=(-2, -1))[:, None, :, None]
+
+        n_i = np.cross(r, e_i, axis=-2)
+        n_i /= LA.norm(n_i, ord=2, axis=(-2, -1))[:, None, :, None]
+
+    elif len(r.shape) == 3:
         u_i = r / LA.norm(r, ord=2, axis=(1, 2))[:, None, None]
 
         e_i = np.cross(k[None, ...], r, axis=1)

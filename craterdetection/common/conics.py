@@ -97,10 +97,16 @@ def crater_representation(a, b, psi, x=0, y=0):
 
     return scale_det(out)
 
+@njit
+def conic_center_numba(A):
+    a = LA.inv(A[:2, :2])
+    b = np.expand_dims(-A[:2, 2], axis=-1)
+    return a @ b
+
 
 def conic_center(A):
-    if len(A.shape) == 3:
-        return (LA.inv(A[:, :2, :2]) @ -A[:, :2, 2][..., None])[..., 0]
+    if len(A.shape) >= 3:
+        return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
     elif len(A.shape) == 2:
         return (LA.inv(A[:2, :2]) @ -A[:2, 2][..., None])[..., 0]
     else:
@@ -108,10 +114,10 @@ def conic_center(A):
 
 
 def ellipse_axes(A):
-    if len(A.shape) == 3:
-        lambdas = LA.eigvalsh(A[:, :2, :2]) / (-LA.det(A) / LA.det(A[:, :2, :2]))[:, None]
+    if len(A.shape) >= 3:
+        lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
         axes = np.sqrt(1 / lambdas)
-        return axes[:, 1], axes[:, 0]
+        return axes[..., 1], axes[..., 0]
 
     elif len(A.shape) == 2:
         lambdas = LA.eigvalsh(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))
