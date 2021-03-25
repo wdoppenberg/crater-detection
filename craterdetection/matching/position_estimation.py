@@ -1,7 +1,13 @@
+from functools import partial
+
 import numpy as np
 import numpy.linalg as LA
+from numba import njit
 
+import craterdetection.common.constants as const
+from craterdetection.common.conics import scale_det, conic_center, ellipse_axes
 from craterdetection.common.coordinates import ENU_system
+from craterdetection.matching import CoplanarInvariants
 
 
 def vec(arr):
@@ -78,3 +84,113 @@ def derive_position(A_craters, r_craters, C_craters, T_CM, K, use_scale=False):
     # TODO: Implement check to resolve the case when the estimated position is below the Moon's surface.
 
     return est_pos
+
+
+@njit
+def pos_lsq_broadcast(A, b):
+    out = np.empty((A.shape[0], 3, 1))
+
+    for ii in range(A.shape[0]):
+        Q, R = LA.qr(A[ii])
+        Qb = np.dot(Q.T, b[ii])
+        out[ii] = LA.solve(R, Qb)
+    return out
+
+
+def calculate_position(A_detections,
+                       db,
+                       T,
+                       K,
+                       batch_size=1000,
+                       top_n=3,
+                       sigma_pix=1,
+                       max_matched_triads=30,
+                       max_alt=500,
+                       return_all_positions=False
+                       ):
+    # top_n = [top_n] if top_n == 1 else top_n
+
+    # Generate matchable features to query the database index with
+    crater_triads, key = next(CoplanarInvariants.match_generator(
+        A_craters=A_detections,
+        max_iter=1,
+        batch_size=batch_size
+    ))
+
+    if len(crater_triads) < batch_size:
+        batch_size = len(crater_triads)
+
+    # Get top-k matches w.r.t. index
+    min_n = db.query(key, k=top_n)
+
+    A_match = A_detections[crater_triads]
+    r_match, C_match = map(partial(np.moveaxis, source=1, destination=0), db[min_n])
+
+    S = np.concatenate((np.identity(2), np.zeros((1, 2))), axis=0)
+    k = np.array([0., 0., 1.])[:, None]
+
+    B_craters = T @ K.T @ A_match @ K @ LA.inv(T)
+
+    confirmations = np.full((top_n, batch_size), False)
+    A_projected_store = np.empty((top_n, batch_size, 3, 3, 3))
+
+    if return_all_positions:
+        position_store = np.empty((top_n, batch_size, 3, 1))
+
+    for i, (r, C) in enumerate(zip(r_match, C_match)):
+        T_EM = np.concatenate(ENU_system(r), axis=-1)
+        T_ME = LA.inv(T_EM)
+
+        A = (S.T @ T_ME @ B_craters).reshape(-1, 6, 3)
+        b = (S.T @ T_ME @ B_craters @ r).reshape(-1, 6, 1)
+        match_est_pos = pos_lsq_broadcast(A, b)
+
+        if return_all_positions:
+            position_store[i] = match_est_pos
+
+        H_Mi = np.concatenate((np.concatenate(ENU_system(r), axis=-1) @ S, r), axis=-1)
+        P_MC = K @ LA.inv(T) @ np.concatenate((np.tile(np.identity(3), (len(match_est_pos), 1, 1)), -match_est_pos),
+                                              axis=2)
+        H_C = P_MC[:, None, ...] @ np.concatenate((H_Mi, np.tile(k.T[None, ...], (len(H_Mi), 3, 1, 1))), axis=-2)
+        A_projected = LA.inv(H_C.transpose(0, 1, 3, 2)) @ C @ LA.inv(H_C)
+
+        A_projected_store[i] = A_projected
+
+        Y_i = -scale_det(A_projected)[..., :2, :2]
+        Y_j = -scale_det(A_match)[..., :2, :2]
+
+        y_i = np.expand_dims(conic_center(A_projected), axis=-1)
+        y_j = np.expand_dims(conic_center(A_match), axis=-1)
+
+        d = np.arccos(
+            (4 * np.sqrt(LA.det(Y_i) * LA.det(Y_j)) / (LA.det(Y_i + Y_j))) \
+            * np.exp(-0.5 * (y_i - y_j).transpose(0, 1, 3, 2) @ Y_i @ LA.inv(Y_i + Y_j) @ Y_j @ (y_i - y_j)).squeeze()
+        )
+
+        a_i, b_i = ellipse_axes(A_projected)
+
+        sigma = (0.85 / np.sqrt(a_i * b_i)) * sigma_pix
+
+        mask = np.logical_and(
+            np.logical_and.reduce(((d / sigma) ** 2) <= 13.276, axis=1),
+            LA.norm(match_est_pos, axis=(-2, -1)) < const.RMOON + max_alt,
+            LA.norm(match_est_pos, axis=(-2, -1)) > const.RMOON
+        )
+
+        confirmations[i] = mask
+
+    n_idx, b_idx = np.where(confirmations)
+
+    if len(n_idx) == 0:
+        return np.full((3, 1), -1)
+
+    est_r = derive_position(A_projected_store[n_idx, b_idx].reshape(-1, 3, 3),
+                            r_match[n_idx, b_idx].reshape(-1, 3, 1),
+                            C_match[n_idx, b_idx].reshape(-1, 3, 3),
+                            T,
+                            K)
+
+    if return_all_positions:
+        return est_r, position_store[n_idx, b_idx]
+    else:
+        return est_r

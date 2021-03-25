@@ -1,7 +1,8 @@
+import networkx as nx
 import numpy as np
 import numpy.linalg as LA
-import networkx as nx
 from numba import njit
+from typing import Tuple
 
 
 def triad_splice(arr, triads):
@@ -100,17 +101,20 @@ def latlong2cartesian(lat, long, alt=0, rad=1737.1):
     return x, y, z
 
 
-def enhanced_pattern_shifting(n):
+@njit
+def enhanced_pattern_shifting(n, start_n=0) -> Tuple[int, int, int]:
     """Generator function returning next crater triad according to Enhanced Pattern Shifting Method [1].
 
     Parameters
     ----------
     n : int
-        Number of detected instances
+        Number of detected instances.
+    start_n: int
+        Iteration to start from, useful for batch processing of triads.
 
     Returns
     -------
-    i, j, k : Iter
+    i, j, k : int
 
     References
     ----------
@@ -119,13 +123,35 @@ def enhanced_pattern_shifting(n):
     if n < 3:
         raise ValueError("Number of detections must be equal or higher than 3!")
 
-    for dj in range(1, n-1):
-        for dk in range(1, n-dj):
+    index = 0
+    for dj in range(1, n - 1):
+        for dk in range(1, n - dj):
             for ii in range(1, 4):
-                for i in range(ii, n-dj-dk+1, 3):
+                for i in range(ii, n - dj - dk + 1, 3):
                     j = i + dj
                     k = j + dk
-                    yield i-1, j-1, k-1
+                    if index >= start_n:
+                        yield i - 1, j - 1, k - 1
+                    index += 1
+
+
+@njit
+def eps_array(n, start_n=0, batch_size=int(1e4)):
+    n_comb = int((n * (n - 1) * (n - 2)) // 6)
+
+    if batch_size is None or n_comb <= batch_size:
+        out = np.empty((n_comb, 3), np.uint32)
+    else:
+        out = np.empty((batch_size, 3), np.uint32)
+
+    for ii, (i, j, k) in enumerate(enhanced_pattern_shifting(n, start_n)):
+        out[ii, 0] = i
+        out[ii, 1] = j
+        out[ii, 2] = k
+        if ii >= batch_size-1:
+            break
+
+    return out
 
 
 @njit

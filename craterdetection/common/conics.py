@@ -44,12 +44,7 @@ def scale_det(A):
         Normalised matrix.
     """
 
-    if len(A.shape) == 2:
-        return np.cbrt(1. / LA.det(A)) * A
-    elif len(A.shape) == 3:
-        return np.cbrt((1. / LA.det(A)).reshape(np.shape(A)[0], 1, 1)) * A
-    else:
-        raise ValueError("Input must be nxn matrix of kxnxn array of matrices.")
+    return np.cbrt((1. / LA.det(A)))[..., None, None] * A
 
 
 def crater_representation(a, b, psi, x=0, y=0):
@@ -105,38 +100,17 @@ def conic_center_numba(A):
 
 
 def conic_center(A):
-    if len(A.shape) >= 3:
-        return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
-    elif len(A.shape) == 2:
-        return (LA.inv(A[:2, :2]) @ -A[:2, 2][..., None])[..., 0]
-    else:
-        raise ValueError("Conic (array) must be of shape (Nx)3x3!")
+    return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
 
 
 def ellipse_axes(A):
-    if len(A.shape) >= 3:
-        lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
-        axes = np.sqrt(1 / lambdas)
-        return axes[..., 1], axes[..., 0]
-
-    elif len(A.shape) == 2:
-        lambdas = LA.eigvalsh(A[:2, :2]) / (-LA.det(A) / LA.det(A[:2, :2]))
-        axes = np.sqrt(1 / lambdas)
-        return axes[1], axes[0]
-
-    else:
-        raise ValueError("Conic (array) must be of shape (Nx)3x3!")
+    lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
+    axes = np.sqrt(1 / lambdas)
+    return axes[..., 1], axes[..., 0]
 
 
 def ellipse_angle(A):
-    if len(A.shape) == 3:
-        return np.arctan2(2 * A[:, 1, 0], (A[:, 0, 0] - A[:, 1, 1])) / 2
-
-    elif len(A.shape) == 2:
-        return np.arctan2(2 * A[1, 0], (A[0, 0] - A[1, 1])) / 2
-
-    else:
-        raise ValueError("Conic (array) must be of shape (Nx)3x3!")
+    return np.arctan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
 
 
 def plot_conics(A_craters,

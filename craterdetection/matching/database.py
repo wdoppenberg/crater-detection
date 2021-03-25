@@ -13,6 +13,7 @@ import craterdetection.common.constants as const
 from craterdetection.common.camera import crater_camera_homography, camera_matrix
 from craterdetection.common.conics import crater_representation, conic_center
 from craterdetection.common.coordinates import ENU_system, nadir_attitude
+from craterdetection.matching.position_estimation import calculate_position
 from craterdetection.matching.projective_invariants import CoplanarInvariants
 from craterdetection.matching.utils import triad_splice, get_cliques_by_length, shift_nd
 
@@ -414,6 +415,25 @@ class CraterDatabase:
             return entries, dist
         else:
             return entries
+
+    def query_position(self,
+                       A_detections,
+                       T,
+                       K,
+                       batch_size=1000,
+                       top_n=3,
+                       sigma_pix=1,
+                       return_all_positions=False
+                       ):
+        return calculate_position(A_detections,
+                                  self,
+                                  T=T,
+                                  K=K,
+                                  batch_size=batch_size,
+                                  top_n=top_n,
+                                  sigma_pix=sigma_pix,
+                                  return_all_positions=return_all_positions
+                                  )
 
     def __getitem__(self, item):
         ct = self._crater_triads[item]

@@ -136,7 +136,7 @@ class CoplanarInvariants:
             n_det = len(A_craters)
             n_comb = int((n_det * (n_det - 1) * (n_det - 2)) // 6)
 
-            crater_triads = np.zeros((n_comb, 3), np.int)
+            crater_triads = np.zeros((n_comb, 3), int)
             for it, (i, j, k) in enumerate(enhanced_pattern_shifting(n_det)):
                 crater_triads[it] = np.array([i, j, k])
 
@@ -231,16 +231,16 @@ class CoplanarInvariants:
 
                 A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triad)))
                 out = cls(crater_triad[None, :], A_i, A_j, A_k)
-                features = out.get_pattern()
+                key = out.get_pattern()
 
                 if sort_ij:
-                    ij_idx = np.abs(features[:3]).argmin()
+                    ij_idx = np.abs(key[:3]).argmin()
                     order = np.roll(np.arange(3), -ij_idx)
                     order_full = np.append(np.concatenate((order, order + 3)), -1)
 
-                    yield crater_triad[order], features[order_full]
+                    yield crater_triad[order], key[order_full]
                 else:
-                    yield crater_triad, features
+                    yield crater_triad, key
 
                 if it >= max_iter:
                     break
@@ -275,23 +275,23 @@ class CoplanarInvariants:
 
                 A_i, A_j, A_k = np.array(list(map(lambda vertex: A_craters[vertex], crater_triads_cw.T)))
                 out = cls(crater_triads_cw, A_i, A_j, A_k)
-                features = out.get_pattern()
+                key = out.get_pattern()
 
                 if sort_ij:
-                    ij_idx = np.abs(features[:, :3]).argmin(1)
-                    features = np.concatenate((
-                        shift_nd(features[:, :3], -ij_idx),
-                        shift_nd(features[:, 3:6], -ij_idx),
-                        features[:, [-1]]
+                    ij_idx = np.abs(key[:, :3]).argmin(1)
+                    key = np.concatenate((
+                        shift_nd(key[:, :3], -ij_idx),
+                        shift_nd(key[:, 3:6], -ij_idx),
+                        key[:, [-1]]
                     ),
                         axis=-1
                     )
                     crater_triads_sorted = shift_nd(out.crater_triads, -ij_idx)
 
-                    yield crater_triads_sorted, features
+                    yield crater_triads_sorted, key
 
                 else:
-                    yield out.crater_triads, features
+                    yield out.crater_triads, key
 
                 if it >= max_iter:
                     break
