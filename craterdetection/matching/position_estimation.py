@@ -106,7 +106,8 @@ def calculate_position(A_detections,
                        sigma_pix=1,
                        max_matched_triads=30,
                        max_alt=500,
-                       return_all_positions=False
+                       return_all_positions=False,
+                       filter_outliers=False
                        ):
     # top_n = [top_n] if top_n == 1 else top_n
 
@@ -134,8 +135,7 @@ def calculate_position(A_detections,
     confirmations = np.full((top_n, batch_size), False)
     A_projected_store = np.empty((top_n, batch_size, 3, 3, 3))
 
-    if return_all_positions:
-        position_store = np.empty((top_n, batch_size, 3, 1))
+    position_store = np.empty((top_n, batch_size, 3, 1))
 
     for i, (r, C) in enumerate(zip(r_match, C_match)):
         T_EM = np.concatenate(ENU_system(r), axis=-1)
@@ -145,8 +145,7 @@ def calculate_position(A_detections,
         b = (S.T @ T_ME @ B_craters @ r).reshape(-1, 6, 1)
         match_est_pos = pos_lsq_broadcast(A, b)
 
-        if return_all_positions:
-            position_store[i] = match_est_pos
+        position_store[i] = match_est_pos
 
         H_Mi = np.concatenate((np.concatenate(ENU_system(r), axis=-1) @ S, r), axis=-1)
         P_MC = K @ LA.inv(T) @ np.concatenate((np.tile(np.identity(3), (len(match_est_pos), 1, 1)), -match_est_pos),
@@ -189,6 +188,21 @@ def calculate_position(A_detections,
                             C_match[n_idx, b_idx].reshape(-1, 3, 3),
                             T,
                             K)
+
+    if filter_outliers:
+        inliers = np.logical_and.reduce(
+            (position_store[n_idx, b_idx] - est_r) < 1.5 * np.std(position_store[n_idx, b_idx], axis=0),
+            axis=1
+        ).squeeze()
+
+        if np.sum(inliers) == 0:
+            return np.full((3, 1), -1)
+
+        est_r = derive_position(A_projected_store[n_idx, b_idx][inliers].reshape(-1, 3, 3),
+                                r_match[n_idx, b_idx][inliers].reshape(-1, 3, 1),
+                                C_match[n_idx, b_idx][inliers].reshape(-1, 3, 3),
+                                T,
+                                K)
 
     if return_all_positions:
         return est_r, position_store[n_idx, b_idx]

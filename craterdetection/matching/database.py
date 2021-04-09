@@ -423,7 +423,8 @@ class CraterDatabase:
                        batch_size=1000,
                        top_n=3,
                        sigma_pix=1,
-                       return_all_positions=False
+                       return_all_positions=False,
+                       filter_outliers=False
                        ):
         return calculate_position(A_detections,
                                   self,
@@ -432,7 +433,8 @@ class CraterDatabase:
                                   batch_size=batch_size,
                                   top_n=top_n,
                                   sigma_pix=sigma_pix,
-                                  return_all_positions=return_all_positions
+                                  return_all_positions=return_all_positions,
+                                  filter_outliers=filter_outliers
                                   )
 
     def __getitem__(self, item):

@@ -2,6 +2,7 @@ import math
 import time
 from random import choice
 
+import cv2
 import h5py
 import mlflow
 import numpy as np
@@ -12,6 +13,9 @@ from torch.optim import Optimizer, Adam, SGD
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 from tqdm.auto import tqdm as tq
+
+from craterdetection.detection.loss_functions.dice import dice_coefficient
+from craterdetection.detection.pre_processing import calculate_cdf, match_histograms
 
 
 class CraterDataset(Dataset):
@@ -27,12 +31,20 @@ class CraterDataset(Dataset):
     def __init__(self,
                  file_path,
                  group,
-                 device=None
+                 device=None,
+                 histogram_matching=True
                  ):
         self.file_path = file_path
         self.group = group
         self.dataset = None
         self.device = device
+
+        if histogram_matching:
+            with h5py.File(self.file_path, 'r') as hf:
+                images = hf['training/images'][:]
+                images = (images / np.max(images, axis=(-2, -1))[..., None, None])*255
+                ref_hist, _ = np.histogram(images.flatten(), 256, [0, 256])
+                self.ref_cdf = calculate_cdf(ref_hist)
 
     def __getitem__(self, idx):
         if self.dataset is None:
@@ -41,7 +53,16 @@ class CraterDataset(Dataset):
         images = self.dataset[self.group]["images"][idx]
         masks = self.dataset[self.group]["masks"][idx]
 
-        images = (images / np.max(images, axis=(1, 2))[..., None, None]) * 255
+        images = (images / np.max(images, axis=(-2, -1))[..., None, None])*255
+
+        # clahe = cv2.createCLAHE(tileGridSize=(8, 8))
+
+        for i in range(len(images)):
+            if self.ref_cdf is not None:
+                images[i] = match_histograms(images[i], ref_cdf=self.ref_cdf)
+
+            images[i] = cv2.GaussianBlur(images[i], (3, 3), 1)
+            # images[i] = clahe.apply(images[i].astype(np.uint8))
 
         images = torch.as_tensor(images)
         masks = torch.as_tensor(masks, dtype=torch.float32)
@@ -153,130 +174,7 @@ class RAdam(Optimizer):
         return loss
 
 
-def f_score(pr, gt, beta=1, eps=1e-7, threshold=None, activation='sigmoid'):
-    """
-    Args:
-        pr (torch.Tensor): A list of predicted elements
-        gt (torch.Tensor):  A list of elements that are to be predicted
-        eps (float): epsilon to avoid zero division
-        threshold: threshold for outputs binarization
-    Returns:
-        float: IoU (Jaccard) score
-    """
-
-    if activation is None or activation == "none":
-        activation_fn = lambda x: x
-    elif activation == "sigmoid":
-        activation_fn = torch.nn.Sigmoid()
-    elif activation == "softmax2d":
-        activation_fn = torch.nn.Softmax2d()
-    else:
-        raise NotImplementedError(
-            "Activation implemented for sigmoid and softmax2d"
-        )
-
-    pr = activation_fn(pr)
-
-    if threshold is not None:
-        pr = (pr > threshold).float()
-
-    tp = torch.sum(gt * pr)
-    fp = torch.sum(pr) - tp
-    fn = torch.sum(gt) - tp
-
-    score = ((1 + beta ** 2) * tp + eps) \
-            / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + eps)
-
-    return score
-
-
-def dice_coefficient(pred, target, eps=1e-7):
-    num = pred.size(0)
-    m1 = pred.view(num, -1)  # Flatten
-    m2 = target.view(num, -1)  # Flatten
-    intersection = (m1 * m2).sum()
-
-    return (2. * intersection + eps) / (m1.sum() + m2.sum() + eps)
-
-
-class TverskyLoss(nn.Module):
-    def __init__(self,
-                 alpha=0.5,
-                 beta=0.5,
-                 eps=1.0
-                 ):
-        super().__init__()
-        self.alpha = alpha
-        self.beta = beta
-        self.eps = eps
-
-    def forward(self, inputs, targets):
-        inputs = nn.Sigmoid()(inputs)
-
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
-
-        TP = (inputs * targets).sum()
-        FP = ((1 - targets) * inputs).sum()
-        FN = (targets * (1 - inputs)).sum()
-
-        loss = (TP + self.eps) / (TP + self.alpha * FP + self.beta * FN + self.eps)
-
-        return 1 - loss
-
-
-class SoftDiceLoss(nn.Module):
-    def __init__(self, eps=1e-7):
-        super(SoftDiceLoss, self).__init__()
-        self.eps = eps
-
-    def forward(self, logits, targets):
-        probs = nn.Sigmoid()(logits)
-        num = targets.size(0)  # Number of batches
-
-        score = dice_coefficient(probs, targets, self.eps)
-        score = 1 - score.sum() / num
-        return score
-
-
-class BCEDiceLoss(nn.Module):
-    def __init__(self,
-                 lambda_bce=1.0,
-                 lambda_dice=1.0,
-                 eps=1e-7
-                 ):
-        super().__init__()
-        self.lambda_bce = lambda_bce
-        self.lambda_dice = lambda_dice
-        self.eps = eps
-        self.bce = nn.BCEWithLogitsLoss()
-        self.dice = SoftDiceLoss(self.eps)
-
-    def forward(self, logits, targets):
-        return (self.bce(logits, targets) * self.lambda_bce) + \
-               (self.dice(logits, targets) * self.lambda_dice)
-
-
-lr_list = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4]
-momentum_list = [0.9, 0.7, 0.5, 0.3, 0.1, 0.]
-
-lambda_dice_list = [1.0, 1.5, 2.0, 2.5]
-lambda_bce_list = [0., 0.5, 1.0]
-eps_list = [0., 0.5, 1.0, 1.5]
-
-loss_function_list = [
-    SoftDiceLoss,
-    nn.BCEWithLogitsLoss
-]
-
-optimizer_list = [
-    Adam,
-    RAdam,
-    SGD
-]
-
-
-def get_trial(model):
+def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list):
     lr = choice(lr_list)
     momentum = choice(momentum_list)
 
