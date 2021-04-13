@@ -29,4 +29,4 @@ def draw_patches(
         ax.add_patch(patches.Rectangle((cx - 0.5 * w, cy - 0.5 * h),
                                        w, h, fill=False, color="r"))
         bbox_props = dict(boxstyle="round", fc="y", ec="0.5", alpha=0.3)
-        ax.text(cx - 0.5 * w, cy - 0.5 * h, f"{s:.0%}", ha="center", va="center", size=10, bbox=bbox_props)
+        ax.text(cx - 0.5 * w, cy - 0.5 * h, f"{s:.0%}", ha="center", va="center", size=6, bbox=bbox_props)
