@@ -1,76 +1,68 @@
 import math
-import time
 from random import choice
 
 import cv2
 import h5py
-import mlflow
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.cuda.amp import autocast
-from torch.optim import Optimizer, Adam, SGD
+from torch.optim import Optimizer, SGD
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
-from tqdm.auto import tqdm as tq
+from typing import Tuple
 
-from craterdetection.detection.loss_functions.dice import dice_coefficient
 from craterdetection.detection.pre_processing import calculate_cdf, match_histograms
 
 
 class CraterDataset(Dataset):
-    transform = {
-        'images': transforms.Compose([
-            transforms.ToTensor()
-        ]),
-        'masks': transforms.Compose([
-            transforms.ToTensor()
-        ])
-    }
-
     def __init__(self,
                  file_path,
                  group,
-                 device=None,
-                 histogram_matching=True
+                 stretch=1,
+                 histogram_matching=False,
+                 gaussian_blur=False,
+                 clahe=False
                  ):
         self.file_path = file_path
         self.group = group
+        self.stretch = stretch
         self.dataset = None
-        self.device = device
+        self.gaussian_blur = gaussian_blur
+        self.clahe = clahe
 
         if histogram_matching:
             with h5py.File(self.file_path, 'r') as hf:
                 images = hf['training/images'][:]
-                images = (images / np.max(images, axis=(-2, -1))[..., None, None])*255
+                images = (images / np.max(images, axis=(-2, -1))[..., None, None]) * self.stretch
                 ref_hist, _ = np.histogram(images.flatten(), 256, [0, 256])
                 self.ref_cdf = calculate_cdf(ref_hist)
+        else:
+            self.ref_cdf = None
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, 'r')
 
         images = self.dataset[self.group]["images"][idx]
         masks = self.dataset[self.group]["masks"][idx]
 
-        images = (images / np.max(images, axis=(-2, -1))[..., None, None])*255
+        images = (images / np.max(images, axis=(-2, -1))[..., None, None]) * self.stretch
 
-        # clahe = cv2.createCLAHE(tileGridSize=(8, 8))
+        if self.gaussian_blur or self.ref_cdf is not None or self.clahe:
+            clahe = cv2.createCLAHE(tileGridSize=(8, 8))
+            for i in range(len(images)):
+                if self.ref_cdf is not None:
+                    images[i] = match_histograms(images[i], ref_cdf=self.ref_cdf)
 
-        for i in range(len(images)):
-            if self.ref_cdf is not None:
-                images[i] = match_histograms(images[i], ref_cdf=self.ref_cdf)
+                if self.gaussian_blur:
+                    images[i] = cv2.GaussianBlur(images[i], (3, 3), 1)
 
-            images[i] = cv2.GaussianBlur(images[i], (3, 3), 1)
-            # images[i] = clahe.apply(images[i].astype(np.uint8))
+                if self.clahe:
+                    images[i] = clahe.apply(images[i].astype(np.uint8))
 
         images = torch.as_tensor(images)
         masks = torch.as_tensor(masks, dtype=torch.float32)
 
-        if self.device is not None:
-            return images.to(self.device), masks.to(self.device)
-        else:
-            return images, masks
+        return images, masks
 
     def random(self):
         return self.__getitem__(
@@ -84,6 +76,66 @@ class CraterDataset(Dataset):
     def __del__(self):
         if self.dataset is not None:
             self.dataset.close()
+
+
+def collate_fn(batch):
+    return tuple(zip(*batch))
+
+
+class CraterInstanceDataset(CraterDataset):
+    def __init__(self, *args, **kwargs):
+        super(CraterInstanceDataset, self).__init__(*args, **kwargs)
+
+    def __getitem__(self, idx):
+        images, mask = super(CraterInstanceDataset, self).__getitem__(idx)
+        images, mask = images.numpy(), mask.numpy()
+
+        mask: np.ndarray = mask.astype(int)
+
+        obj_ids = np.unique(mask)[1:]
+        masks: np.ndarray = mask == obj_ids[:, None, None]
+
+        num_objs = len(obj_ids)
+
+        boxes = np.empty((num_objs, 4), int)
+        for i in range(num_objs):
+            pos = np.where(masks[i])
+            xmin = np.min(pos[1])
+            xmax = np.max(pos[1])
+            ymin = np.min(pos[0])
+            ymax = np.max(pos[0])
+            boxes[i] = np.array([xmin, ymin, xmax, ymax])
+
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        area_filter = area > 4
+
+        masks, obj_ids, boxes, area = map(lambda x: x[area_filter], (masks, obj_ids, boxes, area))
+
+        num_objs = len(obj_ids)
+
+        images = torch.as_tensor(images, dtype=torch.float32)
+
+        boxes = torch.as_tensor(boxes, dtype=torch.int64)
+        labels = torch.ones((num_objs,), dtype=torch.int64)
+        masks = torch.as_tensor(masks, dtype=torch.uint8)
+        area = torch.as_tensor(area, dtype=torch.float32)
+        image_id = torch.tensor([idx])
+
+        iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
+
+        target = dict()
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["masks"] = masks
+        target["image_id"] = image_id
+        target["area"] = area
+        target["iscrowd"] = iscrowd
+
+        return images, target
+
+    @staticmethod
+    def collate_fn(batch):
+        return collate_fn(batch)
 
 
 # https://www.kaggle.com/dhananjay3/image-segmentation-from-scratch-in-pytorch
@@ -137,7 +189,7 @@ class RAdam(Optimizer):
                 beta1, beta2 = group['betas']
 
                 exp_avg_sq.mul_(beta2).addcmul_(tensor1=grad, tensor2=grad, value=1 - beta2)
-                exp_avg.mul_(beta1).add_(1 - beta1, grad)
+                exp_avg.mul_(beta1).add_(grad, 1 - beta1)
 
                 state['step'] += 1
                 buffered = self.buffer[int(state['step'] % 10)]
@@ -174,6 +226,19 @@ class RAdam(Optimizer):
         return loss
 
 
+def load_checkpoint(model, path):
+    if not torch.cuda.is_available():
+        checkpoint = torch.load(path, map_location=torch.device('cpu'))
+    else:
+        checkpoint = torch.load(path)
+
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    checkpoint.pop('model_state_dict')
+
+    return model, checkpoint
+
+
 def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list):
     lr = choice(lr_list)
     momentum = choice(momentum_list)
@@ -194,82 +259,3 @@ def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list)
     optimizer = optimizer(model.parameters(), **opt_params)
 
     return loss_function, lf_params, optimizer, opt_params
-
-
-def hypersearch(model_callable, num_epochs, num_trials, train_loader, validation_loader):
-    with mlflow.start_run(run_name="Hyperparameter Search"):
-        for _ in range(num_trials):
-            with mlflow.start_run(nested=True):
-                model = model_callable()
-                model.cuda()
-
-                loss_function, lf_params, optimizer, opt_params = get_trial(model)
-
-                mlflow.log_param('optimizer', type(optimizer).__name__)
-                mlflow.log_param('loss_function', type(loss_function).__name__)
-                for k, v in opt_params.items():
-                    mlflow.log_param(k, v)
-
-                train_loss_list = []
-                valid_loss_list = []
-                dice_score_list = []
-
-                for e in range(1, num_epochs + 1):
-                    print(f'\n-----Epoch {e} started-----\n')
-
-                    since = time.time()
-
-                    train_loss, valid_loss, dice_score = 0, 0, 0
-
-                    model.train()
-
-                    bar = tq(train_loader, desc=f"Training [{e}]", postfix={"train_loss": 0.0})
-                    for batch, (images, masks) in enumerate(bar, 1):
-                        optimizer.zero_grad()
-
-                        with autocast():
-                            pred = model(images)
-                            loss = loss_function(pred, masks)
-
-                        loss.backward()
-                        train_loss += loss.item() * images.size(0)
-
-                        optimizer.step()
-                        bar.set_postfix(ordered_dict={"train_loss": loss.item()})
-
-                    model.eval()
-                    del images, masks
-                    with torch.no_grad():
-                        bar = tq(validation_loader, desc=f"Validation [{e}]",
-                                 postfix={"valid_loss": 0.0, "dice_score": 0.0})
-                        for images, masks in bar:
-                            with autocast():
-                                pred = model(images)
-                                loss = loss_function(pred, masks)
-
-                            valid_loss += loss.item() * images.size(0)
-                            dice_cof = dice_coefficient(pred, masks).item()
-                            dice_score += dice_cof * images.size(0)
-                            bar.set_postfix(ordered_dict={"valid_loss": loss.item(), "dice_score": dice_cof})
-                    # calculate average losses
-                    train_loss = train_loss / len(train_loader.dataset)
-                    valid_loss = valid_loss / len(validation_loader.dataset)
-                    dice_score = dice_score / len(validation_loader.dataset)
-                    train_loss_list.append(train_loss)
-                    valid_loss_list.append(valid_loss)
-                    dice_score_list.append(dice_score)
-
-                    mlflow.log_metric("train_loss", train_loss, step=e)
-                    mlflow.log_metric("valid_loss", valid_loss, step=e)
-                    mlflow.log_metric("dice_score", dice_score, step=e)
-
-                    time_elapsed = time.time() - since
-                    print(
-                        f"\nSummary:\n",
-                        f"\tEpoch: {e}/{num_epochs}\n",
-                        f"\tAverage train loss: {train_loss}\n",
-                        f"\tAverage validation loss: {valid_loss}\n",
-                        f"\tAverage Dice score: {dice_score}\n",
-                        f"\tDuration: {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
-                    )
-                    print(f'-----Epoch {e} finished.-----\n')
