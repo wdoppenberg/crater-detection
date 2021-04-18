@@ -1,22 +1,32 @@
 import math
+import os
+import time
 from random import choice
+from statistics import mean
+from typing import Tuple, Dict, Iterable
 
 import cv2
 import h5py
+import mlflow
 import numpy as np
 import torch
-from torch.optim import Optimizer, SGD
-from torch.utils.data import Dataset
-from torchvision.transforms import transforms
-from typing import Tuple
+from matplotlib import pyplot as plt
+from torch import nn
+from torch.cuda.amp import autocast
+from torch.optim import SGD
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import Dataset, DataLoader
+from tqdm.auto import tqdm as tq
 
-from craterdetection.detection.pre_processing import calculate_cdf, match_histograms
+from .pre_processing import calculate_cdf, match_histograms
+from .visualisation import draw_patches
 
 
 class CraterDataset(Dataset):
     def __init__(self,
                  file_path,
                  group,
+                 transforms=None,
                  stretch=1,
                  histogram_matching=False,
                  gaussian_blur=False,
@@ -38,7 +48,7 @@ class CraterDataset(Dataset):
         else:
             self.ref_cdf = None
 
-    def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, 'r')
 
@@ -78,165 +88,60 @@ class CraterDataset(Dataset):
             self.dataset.close()
 
 
-def collate_fn(batch):
+def collate_fn(batch: Iterable):
     return tuple(zip(*batch))
 
 
 class CraterInstanceDataset(CraterDataset):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, min_area=4, *args, **kwargs):
         super(CraterInstanceDataset, self).__init__(*args, **kwargs)
+        self.min_area = min_area
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         images, mask = super(CraterInstanceDataset, self).__getitem__(idx)
-        images, mask = images.numpy(), mask.numpy()
+        mask: torch.Tensor = mask.int()
 
-        mask: np.ndarray = mask.astype(int)
-
-        obj_ids = np.unique(mask)[1:]
-        masks: np.ndarray = mask == obj_ids[:, None, None]
-
+        obj_ids = mask.unique()[1:]
+        masks = mask == obj_ids[:, None, None]
         num_objs = len(obj_ids)
 
-        boxes = np.empty((num_objs, 4), int)
+        boxes = torch.zeros((num_objs, 4), dtype=torch.float32)
+
         for i in range(num_objs):
-            pos = np.where(masks[i])
-            xmin = np.min(pos[1])
-            xmax = np.max(pos[1])
-            ymin = np.min(pos[0])
-            ymax = np.max(pos[0])
-            boxes[i] = np.array([xmin, ymin, xmax, ymax])
+            pos = torch.where(masks[i])
+            xmin = pos[1].min()
+            xmax = pos[1].max()
+            ymin = pos[0].min()
+            ymax = pos[0].max()
+            boxes[i] = torch.tensor([xmin, ymin, xmax, ymax])
 
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-        area_filter = area > 4
+        area_filter = area > self.min_area
 
         masks, obj_ids, boxes, area = map(lambda x: x[area_filter], (masks, obj_ids, boxes, area))
 
         num_objs = len(obj_ids)
 
-        images = torch.as_tensor(images, dtype=torch.float32)
-
-        boxes = torch.as_tensor(boxes, dtype=torch.int64)
         labels = torch.ones((num_objs,), dtype=torch.int64)
-        masks = torch.as_tensor(masks, dtype=torch.uint8)
-        area = torch.as_tensor(area, dtype=torch.float32)
+        masks = masks.int()
         image_id = torch.tensor([idx])
 
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
 
-        target = dict()
-        target["boxes"] = boxes
-        target["labels"] = labels
-        target["masks"] = masks
-        target["image_id"] = image_id
-        target["area"] = area
-        target["iscrowd"] = iscrowd
+        target = dict(
+            boxes=boxes,
+            labels=labels,
+            masks=masks,
+            image_id=image_id,
+            area=area,
+            iscrowd=iscrowd
+        )
 
         return images, target
 
     @staticmethod
-    def collate_fn(batch):
+    def collate_fn(batch: Iterable):
         return collate_fn(batch)
-
-
-# https://www.kaggle.com/dhananjay3/image-segmentation-from-scratch-in-pytorch
-class RAdam(Optimizer):
-
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
-        if not 0.0 <= lr:
-            raise ValueError("Invalid learning rate: {}".format(lr))
-        if not 0.0 <= eps:
-            raise ValueError("Invalid epsilon value: {}".format(eps))
-        if not 0.0 <= betas[0] < 1.0:
-            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
-        if not 0.0 <= betas[1] < 1.0:
-            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
-        self.buffer = [[None, None, None] for ind in range(10)]
-        super(RAdam, self).__init__(params, defaults)
-
-    def __setstate__(self, state):
-        super(RAdam, self).__setstate__(state)
-
-    def step(self, closure=None):
-
-        loss = None
-        if closure is not None:
-            loss = closure()
-
-        for group in self.param_groups:
-
-            for p in group['params']:
-                if p.grad is None:
-                    continue
-                grad = p.grad.data.float()
-                if grad.is_sparse:
-                    raise RuntimeError('RAdam does not support sparse gradients')
-
-                p_data_fp32 = p.data.float()
-
-                state = self.state[p]
-
-                if len(state) == 0:
-                    state['step'] = 0
-                    state['exp_avg'] = torch.zeros_like(p_data_fp32)
-                    state['exp_avg_sq'] = torch.zeros_like(p_data_fp32)
-                else:
-                    state['exp_avg'] = state['exp_avg'].type_as(p_data_fp32)
-                    state['exp_avg_sq'] = state['exp_avg_sq'].type_as(p_data_fp32)
-
-                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
-                beta1, beta2 = group['betas']
-
-                exp_avg_sq.mul_(beta2).addcmul_(tensor1=grad, tensor2=grad, value=1 - beta2)
-                exp_avg.mul_(beta1).add_(grad, 1 - beta1)
-
-                state['step'] += 1
-                buffered = self.buffer[int(state['step'] % 10)]
-                if state['step'] == buffered[0]:
-                    N_sma, step_size = buffered[1], buffered[2]
-                else:
-                    buffered[0] = state['step']
-                    beta2_t = beta2 ** state['step']
-                    N_sma_max = 2 / (1 - beta2) - 1
-                    N_sma = N_sma_max - 2 * state['step'] * beta2_t / (1 - beta2_t)
-                    buffered[1] = N_sma
-
-                    # more conservative since it's an approximated value
-                    if N_sma >= 5:
-                        step_size = math.sqrt(
-                            (1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (N_sma - 2) / N_sma * N_sma_max / (
-                                    N_sma_max - 2)) / (1 - beta1 ** state['step'])
-                    else:
-                        step_size = 1.0 / (1 - beta1 ** state['step'])
-                    buffered[2] = step_size
-
-                if group['weight_decay'] != 0:
-                    p_data_fp32.add_(-group['weight_decay'] * group['lr'], p_data_fp32)
-
-                # more conservative since it's an approximated value
-                if N_sma >= 5:
-                    denom = exp_avg_sq.sqrt().add_(group['eps'])
-                    p_data_fp32.addcdiv_(-step_size * group['lr'], exp_avg, denom)
-                else:
-                    p_data_fp32.add_(-step_size * group['lr'], exp_avg)
-
-                p.data.copy_(p_data_fp32)
-
-        return loss
-
-
-def load_checkpoint(model, path):
-    if not torch.cuda.is_available():
-        checkpoint = torch.load(path, map_location=torch.device('cpu'))
-    else:
-        checkpoint = torch.load(path)
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-
-    checkpoint.pop('model_state_dict')
-
-    return model, checkpoint
 
 
 def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list):
@@ -259,3 +164,242 @@ def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list)
     optimizer = optimizer(model.parameters(), **opt_params)
 
     return loss_function, lf_params, optimizer, opt_params
+
+
+def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 4) -> \
+        Tuple[DataLoader, DataLoader, DataLoader]:
+    train_dataset = CraterInstanceDataset(file_path=dataset_path, group="training")
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn,
+                              shuffle=True)
+
+    validation_dataset = CraterInstanceDataset(file_path=dataset_path, group="validation")
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, num_workers=0,
+                                   collate_fn=collate_fn)
+
+    test_dataset = CraterInstanceDataset(file_path=dataset_path, group="test")
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=0, collate_fn=collate_fn,
+                             shuffle=True)
+
+    return train_loader, validation_loader, test_loader
+
+
+def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr=1e-2, run_id: str = None,
+                scheduler=None, batch_size: int = 10, momentum: float = 0.5, weight_decay: float = 1e-5,
+                num_workers: int = 4, device=None) -> None:
+    train_loader, validation_loader, test_loader = get_dataloaders(dataset_path, batch_size, num_workers)
+
+    pretrained = run_id is not None
+
+    mlflow.set_tracking_uri("http://localhost:5000/")
+    mlflow.set_experiment("crater-detection")
+
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    if isinstance(device, str):
+        device = torch.device(device)
+
+    if pretrained:
+        checkpoint = mlflow.pytorch.load_state_dict(f"runs:/{run_id}/checkpoint")
+
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.to(device)
+
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    else:
+        checkpoint = dict()
+        model.to(device)
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = SGD(params, lr=initial_lr, momentum=0.5, weight_decay=1e-7)
+
+    if scheduler is None:
+        scheduler = StepLR(optimizer, step_size=10)
+
+    tracked_params = ('momentum', 'weight_decay', 'dampening')
+
+    name = "Mask RCNN"
+    name += " | Edge" if "edge" in dataset_path else " | Filled"
+    name += " | Pretrained" if pretrained else " | Cold Start"
+
+    run_args = dict(run_name=name)
+    if pretrained:
+        start_e = checkpoint['epoch'] + 1
+        run_metrics = checkpoint['run_metrics']
+        run_args['run_id'] = run_id
+    else:
+        start_e = 1
+        run_metrics = dict(
+            train=dict(
+                batch=list(),
+                loss_total=list(),
+                loss_classifier=list(),
+                loss_box_reg=list(),
+                loss_mask=list(),
+                loss_objectness=list(),
+                loss_rpn_box_reg=list()
+            ),
+            valid=dict(
+                batch=list(),
+                loss_total=list(),
+                loss_classifier=list(),
+                loss_box_reg=list(),
+                loss_mask=list(),
+                loss_objectness=list(),
+                loss_rpn_box_reg=list()
+            )
+        )
+
+    with mlflow.start_run(**run_args) as run:
+        run_id = run.info.run_id
+        print(run_id)
+
+        if not pretrained:
+            mlflow.log_param('optimizer', type(optimizer).__name__)
+            mlflow.log_param('dataset', os.path.basename(dataset_path))
+            for tp in tracked_params:
+                try:
+                    mlflow.log_param(tp, optimizer.state_dict()['param_groups'][0][tp])
+                except KeyError as err:
+                    pass
+
+        for e in range(start_e, num_epochs + start_e):
+            print(f'\n-----Epoch {e} started-----\n')
+
+            since = time.time()
+
+            mlflow.log_metric('lr', optimizer.state_dict()['param_groups'][0]['lr'], step=e)
+
+            model.train()
+            bar = tq(train_loader, desc=f"Training [{e}]",
+                     postfix={
+                         "loss_total": 0.,
+                         "loss_classifier": 0.,
+                         "loss_box_reg": 0.,
+                         "loss_mask": 0.,
+                         "loss_objectness": 0.,
+                         "loss_rpn_box_reg": 0
+                     })
+            for batch, (images, targets) in enumerate(bar, 1):
+                images = list(image.to(device) for image in images)
+                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+                with autocast():
+                    loss_dict = model(images, targets)
+
+                loss = sum(l for l in loss_dict.values())
+
+                if not math.isfinite(loss):
+                    del images, targets
+                    raise RuntimeError(f"Loss is {loss}, stopping training")
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                postfix = dict(loss_total=loss.item())
+                run_metrics["train"]["loss_total"].append(loss.item())
+                run_metrics["train"]["batch"].append(batch)
+
+                for k, v in loss_dict.items():
+                    postfix[k] = v.item()
+                    run_metrics["train"][k].append(v.item())
+
+                bar.set_postfix(ordered_dict=postfix)
+
+
+
+            with torch.no_grad():
+                bar = tq(validation_loader, desc=f"Validation [{e}]",
+                         postfix={
+                             "loss_total": 0.,
+                             "loss_classifier": 0.,
+                             "loss_box_reg": 0.,
+                             "loss_mask": 0.,
+                             "loss_objectness": 0.,
+                             "loss_rpn_box_reg": 0
+                         })
+                for batch, (images, targets) in enumerate(bar, 1):
+                    images = list(image.to(device) for image in images)
+                    targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+                    with autocast():
+                        loss_dict = model(images, targets)
+
+                    loss = sum(l for l in loss_dict.values())
+
+                    if not math.isfinite(loss):
+                        del images, targets
+                        raise RuntimeError(f"Loss is {loss}, stopping validation")
+
+                    postfix = dict(loss_total=loss.item())
+                    run_metrics["valid"]["loss_total"].append(loss.item())
+                    run_metrics["valid"]["batch"].append(batch)
+
+                    for k, v in loss_dict.items():
+                        postfix[k] = v.item()
+                        run_metrics["valid"][k].append(v.item())
+
+                    bar.set_postfix(ordered_dict=postfix)
+
+            time_elapsed = time.time() - since
+            scheduler.step()
+
+            for k, v in run_metrics["train"].items():
+                if k == "batch":
+                    continue
+                mlflow.log_metric("train_" + k, mean(v[(e - 1) * len(train_loader):e * len(train_loader)]), step=e)
+
+            for k, v in run_metrics["valid"].items():
+                if k == "batch":
+                    continue
+                mlflow.log_metric("valid_" + k, mean(v[(e - 1) * len(validation_loader):e * len(validation_loader)]),
+                                  step=e)
+
+            state_dict = {
+                'epoch': e,
+                'run_id': run_id,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'run_metrics': run_metrics
+            }
+
+            mlflow.pytorch.log_state_dict(state_dict, artifact_path="checkpoint")
+
+            checkpoint_path = f"blobs/CraterRCNN_{run_id}.pth"
+            # torch.save(
+            #     state_dict,
+            #     checkpoint_path
+            # )
+
+            model.eval()
+            with torch.no_grad():
+                images, targets = next(iter(test_loader))
+                images = list(image.cuda() for image in images)
+                targets = [{k: v.cuda() for k, v in t.items()} for t in targets]
+
+                out = model(images)
+
+            min_score = 0.7
+
+            boxes, labels, scores, masks = map(lambda x: x.cpu(), out[0].values())
+
+            fig, axes = plt.subplots(1, 4, figsize=(25, 20))
+
+            axes[0].imshow(images[0][0].cpu().numpy(), cmap='gray')
+            axes[1].imshow(torch.sum(targets[0]['masks'], dim=0).clamp(0, 1).cpu().numpy(), cmap='gray')
+            axes[2].imshow(torch.sum(out[0]['masks'][scores > min_score], dim=0).clamp(0, 1).cpu().numpy()[0],
+                           cmap='gray')
+            draw_patches(images[0].cpu(), boxes, labels, scores, masks, min_score=min_score, ax=axes[3])
+
+            mlflow.log_figure(fig, f"sample_output_e{e}.png")
+
+            print(
+                f"\nSummary:\n",
+                f"\tEpoch: {e}/{num_epochs + start_e}\n",
+                f"\tAverage train loss: {mean(run_metrics['train']['loss_total'][(e - 1) * len(train_loader):e * len(train_loader)])}\n",
+                f"\tAverage validation loss: {mean(run_metrics['valid']['loss_total'][(e - 1) * len(validation_loader):e * len(validation_loader)])}\n",
+                f"\tDuration: {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"
+            )
+            print(f'-----Epoch {e} finished.-----\n')
