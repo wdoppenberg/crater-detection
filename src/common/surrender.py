@@ -4,7 +4,7 @@ import numpy as np
 from surrender.geometry import vec4, gaussian
 from surrender.surrender_client import surrender_client
 
-import craterdetection.common.constants as const
+import src.common.constants as const
 
 
 def setup_renderer(fov=const.CAMERA_FOV, raytracing=False, preview_mode=True, resolution=const.CAMERA_RESOLUTION):

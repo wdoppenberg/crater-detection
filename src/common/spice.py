@@ -6,7 +6,7 @@ from typing import List
 import numpy as np
 import spiceypy as spice
 
-import craterdetection.common.constants as const
+import src.common.constants as const
 
 
 def download_kernel(file_path, base_url=const.SPICE_BASE_URL, base_folder=const.KERNEL_ROOT):

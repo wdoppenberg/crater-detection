@@ -133,6 +133,6 @@ dmypy.json
 
 .vscode
 
-craterdetection/detection/VPU/IR/
+src/detection/VPU/IR/
 /blobs/*.onnx
 /mlflow

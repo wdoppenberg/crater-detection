@@ -9,13 +9,13 @@ from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
 from scipy.spatial import KDTree
 from sklearn.neighbors import radius_neighbors_graph
 
-import craterdetection.common.constants as const
-from craterdetection.common.camera import crater_camera_homography, camera_matrix
-from craterdetection.common.conics import crater_representation, conic_center
-from craterdetection.common.coordinates import ENU_system, nadir_attitude
-from craterdetection.matching.position_estimation import calculate_position
-from craterdetection.matching.projective_invariants import CoplanarInvariants
-from craterdetection.matching.utils import triad_splice, get_cliques_by_length, shift_nd
+import src.common.constants as const
+from src.common.camera import crater_camera_homography, camera_matrix
+from src.common.conics import crater_representation, conic_center
+from src.common.coordinates import ENU_system, nadir_attitude
+from src.matching.position_estimation import calculate_position
+from src.matching.projective_invariants import CoplanarInvariants
+from src.matching.utils import triad_splice, get_cliques_by_length, shift_nd
 
 
 def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",

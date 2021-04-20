@@ -5,8 +5,8 @@ import numpy.linalg as LA
 from astropy.coordinates import spherical_to_cartesian
 from scipy.spatial.transform import Rotation
 
-import craterdetection.common.constants as const
-from craterdetection.common.coordinates import ENU_system, nadir_attitude
+import src.common.constants as const
+from src.common.coordinates import ENU_system, nadir_attitude
 
 
 def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alpha=0):

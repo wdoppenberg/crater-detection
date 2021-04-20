@@ -212,7 +212,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         checkpoint = dict()
         model.to(device)
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = SGD(params, lr=initial_lr, momentum=0.5, weight_decay=1e-7)
+        optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
 
     if scheduler is None:
         scheduler = StepLR(optimizer, step_size=10)
@@ -307,8 +307,6 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     run_metrics["train"][k].append(v.item())
 
                 bar.set_postfix(ordered_dict=postfix)
-
-
 
             with torch.no_grad():
                 bar = tq(validation_loader, desc=f"Validation [{e}]",

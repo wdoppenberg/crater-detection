@@ -1,6 +1,6 @@
 import argparse
 
-from craterdetection.detection import create_detection_model, train_model
+from src.detection import create_detection_model, train_model
 
 
 def get_args():
@@ -12,11 +12,11 @@ def get_args():
                         help='Batch size', dest='batch_size')
     parser.add_argument('-n', '--numworkers', dest='num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')
-    parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, default=0.001,
-                        help='Learning rate', dest='lr')
+    parser.add_argument('-l', '--learning_rate', metavar='LR', type=float, default=0.001,
+                        help='Learning rate', dest='lr', nargs='?')
     parser.add_argument('-bb', '--backbone', dest='backbone_name', type=str, default="resnet18",
                         help='Model backbone ResNet type.')
-    parser.add_argument('-i', '--runid', dest='run_id', type=str, default=None,
+    parser.add_argument('-i', '--runid', dest='run_id', type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
     parser.add_argument('-d', '--dataset', dest='dataset_path', type=str, default="data/dataset_instanced_edge.h5",
                         help='Dataset path')

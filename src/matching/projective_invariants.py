@@ -1,8 +1,8 @@
 import numpy as np
 import numpy.linalg as LA
 
-from craterdetection.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
-from craterdetection.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting, \
+from src.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
+from src.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting, \
     shift_nd
 
 

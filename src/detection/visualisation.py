@@ -1,5 +1,6 @@
 from typing import Union
 
+import cv2
 import numpy as np
 import torch
 from matplotlib import pyplot as plt, patches
@@ -40,3 +41,16 @@ def draw_patches(
 
     if return_fig and return_fig_check:
         return fig
+
+
+def draw_detections(df, shape=(256, 256)):
+    img_ellipses = np.zeros(shape)
+    for i, r in df.iterrows():
+        center_coordinates = (round(r['x_pix']), round(r['y_pix']))
+        axes_length = (round(r['a_pix']), round(r['b_pix']))
+        angle = round(r['angle_pix'])
+        img_ellipses = cv2.ellipse(img_ellipses, center_coordinates, axes_length,
+                                   angle, 0, 360, (255, 255, 255), 1)
+        img_ellipses = cv2.circle(img_ellipses, center_coordinates, 0, (255, 255, 255), 1)
+
+    return img_ellipses

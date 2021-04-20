@@ -1,5 +1,5 @@
 import torch
-from craterdetection.detection import DeepMoon
+from src.detection import DeepMoon
 
 checkpoint_path = 'blobs/DeepMoon.pth'
 print(f"Loading {checkpoint_path}...")

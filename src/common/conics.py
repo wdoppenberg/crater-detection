@@ -1,12 +1,15 @@
+from typing import Union
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from matplotlib.collections import EllipseCollection
 from numpy import linalg as LA
 
 from numba import njit
 
-import craterdetection.common.constants as const
+import src.common.constants as const
 
 
 def matrix_adjugate(matrix):
@@ -68,7 +71,10 @@ def crater_representation(a, b, psi, x=0, y=0):
     np.ndarray
         Array of ellipse matrices
     """
-    out = np.empty((len(a), 3, 3))
+    if isinstance(a, (int, float)):
+        out = np.empty((3, 3))
+    else:
+        out = np.empty((len(a), 3, 3))
 
     A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
     B = 2 * ((b ** 2) - (a ** 2)) * np.cos(psi) * np.sin(psi)
@@ -77,18 +83,18 @@ def crater_representation(a, b, psi, x=0, y=0):
     F = -B * x - 2 * C * y
     G = A * (x ** 2) + B * x * y + C * (y ** 2) - (a ** 2) * (b ** 2)
 
-    out[:, 0, 0] = A
-    out[:, 1, 1] = C
-    out[:, 2, 2] = G
+    out[..., 0, 0] = A
+    out[..., 1, 1] = C
+    out[..., 2, 2] = G
 
-    out[:, 1, 0] = B/2
-    out[:, 0, 1] = B/2
+    out[..., 1, 0] = B/2
+    out[..., 0, 1] = B/2
 
-    out[:, 2, 0] = D/2
-    out[:, 0, 2] = D/2
+    out[..., 2, 0] = D/2
+    out[..., 0, 2] = D/2
 
-    out[:, 2, 1] = F/2
-    out[:, 1, 2] = F/2
+    out[..., 2, 1] = F/2
+    out[..., 1, 2] = F/2
 
     return scale_det(out)
 
@@ -113,12 +119,15 @@ def ellipse_angle(A):
     return np.arctan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
 
 
-def plot_conics(A_craters,
+def plot_conics(A_craters: Union[np.ndarray, torch.Tensor],
                 resolution=const.CAMERA_RESOLUTION,
                 figsize=(15, 15),
                 plot_centers=False,
                 ax=None,
                 rim_color='r'):
+    if isinstance(A_craters, torch.Tensor):
+        A_craters = A_craters.numpy()
+
     a_proj, b_proj = ellipse_axes(A_craters)
     psi_proj = ellipse_angle(A_craters)
     r_pix_proj = conic_center(A_craters)

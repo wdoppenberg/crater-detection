@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 
-import craterdetection.common.constants as const
+import src.common.constants as const
 
 
 def ENU_system(r):

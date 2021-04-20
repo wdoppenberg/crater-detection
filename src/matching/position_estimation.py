@@ -4,10 +4,10 @@ import numpy as np
 import numpy.linalg as LA
 from numba import njit
 
-import craterdetection.common.constants as const
-from craterdetection.common.conics import scale_det, conic_center, ellipse_axes
-from craterdetection.common.coordinates import ENU_system
-from craterdetection.matching import CoplanarInvariants
+import src.common.constants as const
+from src.common.conics import scale_det, conic_center, ellipse_axes
+from src.common.coordinates import ENU_system
+from src.matching import CoplanarInvariants
 
 
 def vec(arr):
