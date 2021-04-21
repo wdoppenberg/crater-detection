@@ -20,7 +20,7 @@ UA = UA2KM * 1e3
 def setup_renderer(
             fov=const.CAMERA_FOV,
             raytracing=False,
-            preview_mode=True,
+            preview_mode=False,
             resolution=const.CAMERA_RESOLUTION,
             hostname='127.0.0.1',
             port=5151
@@ -89,15 +89,26 @@ class SurRenderer(Renderer):
                  scene_time=dt.datetime(2021, 1, 1)
                  ):
         super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
-        self.backend = setup_renderer(fov=fov, resolution=resolution)
+
+        self.scene_time = scene_time
+        setup_spice()
+        self.__setup_backend()
+        self.__sync_backend()
+
+    def __setup_backend(self,
+                        DEM_filename="FullMoon.dem",
+                        texture_filename="lroc_color_poles.tiff"):
+        self.backend = setup_renderer(fov=self.fov, resolution=self.resolution)
 
         self.backend.createBRDF('sun', 'sun.brdf', {})
         self.backend.createShape('sun', 'sphere.shp', {'radius': SUN_RADIUS})
         self.backend.createBody('sun', 'sun', 'sun', [])
+        self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
 
         self.backend.createBRDF("mate", "mate.brdf", {})
         self.backend.createShape("earth_shape", "sphere.shp", {'radius': EARTH_RADIUS})
         self.backend.createBody("earth", "earth_shape", "mate", ["earth.jpg"])
+        self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
 
         self.backend.createBRDF('hapke', 'hapke.brdf', {})
         self.backend.createSphericalDEM('moon', DEM_filename, 'hapke', texture_filename)
@@ -108,21 +119,18 @@ class SurRenderer(Renderer):
         self.backend.setObjectAttitude('moon', quat(vec3(1, 0, 0), 0))
         self.backend.setObjectAttitude('moon', Rotation.from_euler('z', np.pi, degrees=False).as_quat())
 
-        setup_spice()
-
-        self.scene_time = scene_time
-
-        self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
-        self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
-
-        self.__sync_backend()
-
     def __sync_backend(self):
         """
-        Synchronise Renderer state with backend
+        Synchronise Renderer state with backend.
+
+        Currently, a change in the resolution attribute is not propagated back to the backend after initialization
+        as it breaks the renderer.
         """
-        self.backend.setObjectPosition('camera', self.r.ravel() * 1e3)
-        self.backend.setObjectAttitude('camera', Rotation.from_matrix(self.T).as_quat())
+        # TODO: Fix resolution adjustment.
+
+        self.backend.setCameraFOVDeg(*self.fov)
+        self.backend.setObjectPosition('camera', self.position.ravel() * 1e3)
+        self.backend.setObjectAttitude('camera', Rotation.from_matrix(self.attitude).as_quat())
         self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
         self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
 
@@ -148,7 +156,9 @@ class SurRenderer(Renderer):
         self.backend.render()
         out = self.backend.getImageGray32F()
 
-        if stretch:
-            return out / out.max()
+        max_pixel = out.max()
+
+        if stretch and max_pixel > 0:
+            return out / max_pixel
         else:
             return out

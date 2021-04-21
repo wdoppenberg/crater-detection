@@ -3,6 +3,7 @@ from typing import Union
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import datetime as dt
 import torch
 from matplotlib.collections import EllipseCollection
 from numpy import linalg as LA
@@ -10,6 +11,7 @@ from numpy import linalg as LA
 from numba import njit
 
 import src.common.constants as const
+from src.common.camera import Camera, crater_camera_homography
 
 
 def matrix_adjugate(matrix):
@@ -34,12 +36,12 @@ def matrix_adjugate(matrix):
     return cofactor.T
 
 
-def scale_det(A):
+def scale_det(matrix):
     """Rescale matrix such that det(A) = 1.
 
     Parameters
     ----------
-    A: np.ndarray
+    matrix: np.ndarray
         Matrix input
     Returns
     -------
@@ -47,7 +49,7 @@ def scale_det(A):
         Normalised matrix.
     """
 
-    return np.cbrt((1. / LA.det(A)))[..., None, None] * A
+    return np.cbrt((1. / LA.det(matrix)))[..., None, None] * matrix
 
 
 def crater_representation(a, b, psi, x=0, y=0):
@@ -97,6 +99,7 @@ def crater_representation(a, b, psi, x=0, y=0):
     out[..., 1, 2] = F/2
 
     return scale_det(out)
+
 
 @njit
 def conic_center_numba(A):
@@ -192,3 +195,13 @@ def generate_mask(A_craters,
                                    thickness)
 
     return mask
+
+
+class ConicProjector(Camera):
+    def project_crater_conics(self, C, r_craters):
+        H_Ci = crater_camera_homography(r_craters, self.projection_matrix)
+        return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
+
+    def project_crater_centers(self, r_craters):
+        H_Ci = crater_camera_homography(r_craters, self.projection_matrix)
+        return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
