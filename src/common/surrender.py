@@ -1,4 +1,3 @@
-from abc import ABC
 from collections import Iterable
 from typing import Union
 
@@ -8,9 +7,9 @@ from scipy.spatial.transform import Rotation
 from surrender.geometry import vec4, gaussian, quat, vec3
 from surrender.surrender_client import surrender_client
 
-import constants as const
+import src.common.constants as const
 from .camera import Renderer
-from .spice import get_sun_pos, get_earth_pos
+from .spice import get_sun_pos, get_earth_pos, setup_spice
 
 SUN_RADIUS = 696342e3
 EARTH_RADIUS = 6371e3
@@ -22,7 +21,9 @@ def setup_renderer(
             fov=const.CAMERA_FOV,
             raytracing=False,
             preview_mode=True,
-            resolution=const.CAMERA_RESOLUTION
+            resolution=const.CAMERA_RESOLUTION,
+            hostname='127.0.0.1',
+            port=5151
         ):
     # Image setup:
     raytracing = raytracing
@@ -37,7 +38,7 @@ def setup_renderer(
     # Initializing SurRender
     s = surrender_client()
     s.setVerbosityLevel(2)
-    s.connectToServer('127.0.0.1')
+    s.connectToServer(hostname, port=port)
     s.setCompressionLevel(0)
     s.closeViewer()
     s.setTimeOut(86400)
@@ -75,16 +76,19 @@ def setup_renderer(
 
 
 class SurRenderer(Renderer):
+    """
+    SurRender software wrapper for Lunar scene generation with accurately generated Sun & Earth positions.
+    """
     def __init__(self,
-                 r,
-                 T=None,
+                 position,
+                 attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION,
                  DEM_filename="FullMoon.dem",
                  texture_filename="lroc_color_poles.tiff",
-                 datetime=dt.datetime(2021, 1, 1)
+                 scene_time=dt.datetime(2021, 1, 1)
                  ):
-        super().__init__(r=r, T=T, fov=fov, resolution=resolution)
+        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
         self.backend = setup_renderer(fov=fov, resolution=resolution)
 
         self.backend.createBRDF('sun', 'sun.brdf', {})
@@ -104,43 +108,47 @@ class SurRenderer(Renderer):
         self.backend.setObjectAttitude('moon', quat(vec3(1, 0, 0), 0))
         self.backend.setObjectAttitude('moon', Rotation.from_euler('z', np.pi, degrees=False).as_quat())
 
-        self.datetime = datetime
+        setup_spice()
 
-        self.sun_pos, _ = get_sun_pos(self.datetime)
-        self.earth_pos, _ = get_earth_pos(self.datetime)
-
-        self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
-        self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
-
-    def set_position(self, r: np.ndarray):
-        super(SurRenderer, self).set_position(r)
-
-        self.backend.setObjectPosition('camera', self._r.ravel() * 1e3)
-
-    def set_orientation(self, T: Union[np.ndarray, Rotation]):
-        super(SurRenderer, self).set_orientation(T)
-
-        self.backend.setObjectAttitude('camera', Rotation.from_matrix(self._T).as_quat())
-
-    def set_resolution(self, resolution):
-        super(SurRenderer, self).set_resolution(resolution)
-
-        self.backend.setImageSize(*self._resolution)
-
-    def set_fov(self, fov):
-        super(SurRenderer, self).set_fov(fov)
-
-        self.backend.setCameraFOVRad(*self._fov)
-
-    def set_datetime(self, datetime):
-        self.datetime = datetime
-
-        self.sun_pos, _ = get_sun_pos(self.datetime)
-        self.earth_pos, _ = get_earth_pos(self.datetime)
+        self.scene_time = scene_time
 
         self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
         self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
 
-    def get_image(self):
+        self.__sync_backend()
+
+    def __sync_backend(self):
+        """
+        Synchronise Renderer state with backend
+        """
+        self.backend.setObjectPosition('camera', self.r.ravel() * 1e3)
+        self.backend.setObjectAttitude('camera', Rotation.from_matrix(self.T).as_quat())
+        self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
+        self.backend.setObjectPosition('sun', self.sun_pos * 1e3)
+
+    @property
+    def scene_time(self):
+        return self.__scene_time
+
+    @scene_time.setter
+    def scene_time(self, scene_time):
+        self.__scene_time = scene_time
+
+    @property
+    def sun_pos(self):
+        return get_sun_pos(self.scene_time)
+
+    @property
+    def earth_pos(self):
+        return get_earth_pos(self.scene_time)
+
+    def get_image(self, stretch=True) -> np.ndarray:
+        self.__sync_backend()
+
         self.backend.render()
-        return self.backend.getImageGray32F()
+        out = self.backend.getImageGray32F()
+
+        if stretch:
+            return out / out.max()
+        else:
+            return out

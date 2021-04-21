@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import Union
+from typing import Union, Tuple
 
 import numpy as np
 import numpy.linalg as LA
@@ -172,32 +172,34 @@ class Camera:
     """
 
     def __init__(self,
-                 r,
-                 T=None,
+                 position,
+                 attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION
                  ):
 
         # Ensure 3x1 vector
-        if len(r.shape) == 1:
-            r = r[:, None]
-        elif len(r.shape) > 2:
+        if len(position.shape) == 1:
+            position = position[:, None]
+        elif len(position.shape) > 2:
             raise ValueError("Position vector must be 1 or 2-dimensional (3x1)!")
 
-        self._r = r
-        self._fov = fov
-        self._resolution = resolution
+        self.__r = None
+        self.__T = None
+        self.__fov = None
+        self.__resolution = None
 
-        if not isinstance(self._resolution, Iterable):
-            self._resolution = (self._resolution, self._resolution)
+        self.position = position
+        self.fov = fov
+        self.resolution = resolution
 
-        if T is None:
-            self._T = np.concatenate(nadir_attitude(r), axis=-1)
+        if attitude is None:
+            self.attitude = np.concatenate(nadir_attitude(self.position), axis=-1)
 
-            if LA.matrix_rank(self._T) != 3:
-                raise ValueError("Invalid camera attitude matrix!:\n", self._T)
+            if LA.matrix_rank(self.attitude) != 3:
+                raise ValueError("Invalid camera attitude matrix!:\n", self.attitude)
         else:
-            self._T = T
+            self.attitude = attitude
 
     @classmethod
     def from_coordinates(cls,
@@ -214,25 +216,44 @@ class Camera:
             lat, long = map(np.radians, (lat, long))
 
         r_M = np.array(spherical_to_cartesian(Rbody + altitude, lat, long))[:, None]
-        return cls(r=r_M, T=T, fov=fov, resolution=resolution)
+        return cls(position=r_M, attitude=T, fov=fov, resolution=resolution)
 
-    def set_position(self, r: np.ndarray):
+    @property
+    def position(self) -> np.ndarray:
+        return self.__r
+
+    @position.setter
+    def position(self, position: np.ndarray):
         """
         Sets instance's position in Cartesian space.
 
         Parameters
         ----------
-        r : np.ndarray
+        position : np.ndarray
             3x1 position vector of camera.
         """
-        self._r = r
+        if LA.norm(position) < const.RMOON:
+            raise ValueError(
+                f"New position vector is inside the Moon! (Altitude = {LA.norm(position):.2f} km, "
+                f"R_moon = {const.RMOON})"
+            )
 
-    def get_position(self):
-        return self._r
+        if not position.dtype == np.float64:
+            position = position.astype(np.float64)
 
-    def set_orientation(self, T: Union[np.ndarray, Rotation]):
+        self.__r = position
+
+    # Alias
+    r = position
+
+    @property
+    def attitude(self) -> np.ndarray:
+        return self.__T
+
+    @attitude.setter
+    def attitude(self, T: Union[np.ndarray, Rotation]):
         """
-        Sets instance's orientation
+        Sets instance's attitude
 
         Parameters
         ----------
@@ -246,12 +267,20 @@ class Camera:
         if isinstance(T, Rotation):
             T = T.as_matrix()
 
-        self._T = T
+        if not np.isclose(abs(LA.det(T)), 1):
+            raise ValueError(f"Invalid rotation matrix! Determinant should be +-1, is {LA.det(T)}.")
 
-    def get_orientation(self):
-        return self._T
+        self.__T = T
 
-    def set_fov(self, fov):
+    # Alias
+    T = attitude
+
+    @property
+    def fov(self) -> Tuple:
+        return self.__fov
+
+    @fov.setter
+    def fov(self, fov):
         """
         Set instance's Field-of-View in radians.
 
@@ -260,14 +289,17 @@ class Camera:
         fov: int, float, Iterable
             Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
         """
-        self._fov = fov
-        if not isinstance(self._fov, Iterable):
-            self._fov = (self._fov, self._fov)
+        if not isinstance(fov, Iterable):
+            self.__fov = (fov, fov)
+        else:
+            self.__fov = tuple(fov)
 
-    def get_fov(self):
-        return self._fov
+    @property
+    def resolution(self) -> Tuple:
+        return self.__resolution
 
-    def set_resolution(self, resolution):
+    @resolution.setter
+    def resolution(self, resolution):
         """
         Set instance's resolution in pixels.
 
@@ -276,25 +308,24 @@ class Camera:
         resolution : int, Iterable
             Image resolution, if type is Iterable it will be interpreted as (res_x, res_y)
         """
+        if not isinstance(resolution, Iterable):
+            self.__resolution = (resolution, resolution)
+        else:
+            self.__resolution = tuple(resolution)
 
-        self._resolution = resolution
-        if not isinstance(self._resolution, Iterable):
-            self._resolution = (self._resolution, self._resolution)
+    @property
+    def camera_matrix(self) -> np.ndarray:
+        return camera_matrix(fov=self.fov, resolution=self.resolution)
 
-    def get_resolution(self):
-        return self._resolution
+    # Alias
+    K = camera_matrix
 
-    def K(self):
-        return camera_matrix(fov=self._fov, resolution=self._resolution)
+    @property
+    def projection_matrix(self) -> np.ndarray:
+        return projection_matrix(K=self.K, T_CM=self.T, r_M=self.r)
 
-    def camera_matrix(self):
-        return self.K()
-
-    def P(self):
-        return projection_matrix(K=self.K(), T_CM=self._T, r_M=self._r)
-
-    def projection_matrix(self):
-        return self.P()
+    # Alias
+    P = projection_matrix
 
     def rotate(self, axis: str, angle: float, degrees: bool = True, reset_first: bool = False):
         if axis not in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
@@ -310,52 +341,46 @@ class Camera:
         if reset_first:
             self.point_nadir()
 
-        self._T = (Rotation.from_matrix(self._T) * Rotation.from_euler(axis, angle, degrees=degrees)).as_matrix()
+        self.T = (Rotation.from_matrix(self.T) * Rotation.from_euler(axis, angle, degrees=degrees)).as_matrix()
 
     def point_nadir(self):
-        self._T = np.concatenate(nadir_attitude(self._r), axis=-1)
+        self.T = np.concatenate(nadir_attitude(self.r), axis=-1)
 
 
 class ConicProjector(Camera):
     def __init__(self,
-                 r,
-                 T=None,
+                 position,
+                 attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION
                  ):
-        super().__init__(r=r, T=T, fov=fov, resolution=resolution)
+        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
 
     def project_crater_conics(self, C, r_craters):
-        H_Ci = crater_camera_homography(r_craters, self.P())
+        H_Ci = crater_camera_homography(r_craters, self.P)
         return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
 
     def project_crater_centers(self, r_craters):
-        H_Ci = crater_camera_homography(r_craters, self.P())
+        H_Ci = crater_camera_homography(r_craters, self.P)
         return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
 
 
 class Renderer(Camera, ABC):
     def __init__(self,
-                 r,
-                 T=None,
+                 position,
+                 attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION
                  ):
-        super().__init__(r=r, T=T, fov=fov, resolution=resolution)
-        self.backend = None
+        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
 
-    @abstractmethod
-    def set_datetime(self, datetime):
-        pass
+    @property
+    def scene_time(self):
+        raise NotImplementedError
 
-    @abstractmethod
-    def set_position(self, r: np.ndarray):
-        pass
+    @scene_time.setter
+    def scene_time(self, scene_time):
+        raise NotImplementedError
 
-    @abstractmethod
-    def set_orientation(self, T: Union[np.ndarray, Rotation]):
-        pass
-
-    @abstractmethod
-    def get_image(self):
-        pass
+    def get_image(self) -> np.ndarray:
+        raise NotImplementedError
