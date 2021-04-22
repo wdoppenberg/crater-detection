@@ -4,14 +4,16 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from astropy.coordinates import spherical_to_cartesian
 from matplotlib.collections import EllipseCollection
 from numba import njit
 from numpy import linalg as LA
+from scipy.spatial.distance import cdist
 
 import src.common.constants as const
-from common.camera import camera_matrix, projection_matrix
-from common.coordinates import ENU_system
-from src.common.camera import Camera
+from common.robbins import load_craters, extract_robbins_dataset
+from src.common.camera import camera_matrix, projection_matrix, Camera
+from src.common.coordinates import ENU_system
 
 
 def matrix_adjugate(matrix):
@@ -314,3 +316,88 @@ class ConicProjector(Camera):
                              instancing=instancing,
                              thickness=thickness
                              )
+
+
+class MaskGenerator(ConicProjector):
+    def __init__(self,
+                 r_craters_catalogue: np.ndarray,
+                 C_craters_catalogue: np.ndarray,
+                 axis_threshold=const.AXIS_THRESHOLD,
+                 filled=False,
+                 instancing=True,
+                 mask_thickness=1,
+                 position=None,
+                 resolution=const.CAMERA_RESOLUTION,
+                 fov=const.CAMERA_FOV,
+                 orbiting_body_radius=const.RMOON
+                 ):
+        super(MaskGenerator, self).__init__(position=position, resolution=resolution, fov=fov,
+                                            orbiting_body_radius=orbiting_body_radius)
+
+        self.axis_threshold = axis_threshold
+        self.mask_thickness = mask_thickness
+        self.instancing = instancing
+        self.filled = filled
+        self.C_craters_catalogue = C_craters_catalogue
+        self.r_craters_catalogue = r_craters_catalogue
+
+    @classmethod
+    def from_robbins_dataset(cls,
+                             file_path="data/lunar_crater_database_robbins_2018.csv",
+                             diamlims=const.DIAMLIMS,
+                             ellipse_limit=const.MAX_ELLIPTICITY,
+                             arc_lims=const.ARC_LIMS,
+                             axis_threshold=const.AXIS_THRESHOLD,
+                             filled=False,
+                             instancing=True,
+                             mask_thickness=1,
+                             position=None,
+                             resolution=const.CAMERA_RESOLUTION,
+                             fov=const.CAMERA_FOV,
+                             orbiting_body_radius=const.RMOON
+                             ):
+        lat_cat, long_cat, major_cat, minor_cat, psi_cat, crater_id = extract_robbins_dataset(
+            load_craters(file_path, diamlims=diamlims, ellipse_limit=ellipse_limit, arc_lims=arc_lims)
+        )
+        r_craters_catalogue = np.array(np.array(spherical_to_cartesian(const.RMOON, lat_cat, long_cat))).T[..., None]
+        C_craters_catalogue = crater_representation(major_cat, minor_cat, psi_cat)
+
+        return cls(r_craters_catalogue=r_craters_catalogue,
+                   C_craters_catalogue=C_craters_catalogue,
+                   axis_threshold=axis_threshold,
+                   filled=filled,
+                   instancing=instancing,
+                   mask_thickness=mask_thickness,
+                   resolution=resolution,
+                   fov=fov,
+                   orbiting_body_radius=orbiting_body_radius,
+                   position=position
+                   )
+
+    def __visible(self):
+        return (cdist(self.r_craters_catalogue.squeeze(), self.position.T) <=
+                np.sqrt(2 * self.height * self._orbiting_body_radius + self.height ** 2)).ravel()
+
+    def generate_mask(self, *args, **kwargs):
+        r_craters = self.r_craters_catalogue[self.__visible()]
+        C_craters = self.C_craters_catalogue[self.__visible()]
+
+        r_craters_img = self.project_crater_centers(r_craters)
+        in_image = np.logical_and.reduce(np.logical_and(r_craters_img > -50, r_craters_img < self.resolution[0] + 50),
+                                         axis=1)
+
+        r_craters = r_craters[in_image]
+        C_craters = C_craters[in_image]
+
+        A_craters = self.project_crater_conics(C_craters, r_craters)
+
+        a_proj, b_proj = ellipse_axes(A_craters)
+        axis_filter = np.logical_and(a_proj >= self.axis_threshold[0], b_proj >= self.axis_threshold[0])
+        axis_filter = np.logical_and(axis_filter,
+                                     np.logical_and(a_proj <= self.axis_threshold[1], b_proj <= self.axis_threshold[1]))
+        A_craters = A_craters[axis_filter]
+
+        return super(MaskGenerator, self).generate_mask(A_craters=A_craters,
+                                                        filled=self.filled,
+                                                        instancing=self.instancing,
+                                                        thickness=self.mask_thickness)

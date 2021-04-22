@@ -1,14 +1,13 @@
 import os
 import urllib
 from pathlib import Path
-from typing import List
 
 import numpy as np
 import spiceypy as spice
 
 import src.common.constants as const
 
-KERNELS = list(map(Path, (
+KERNELS = tuple(map(Path, (
     'generic_kernels/lsk/naif0012.tls',
     'generic_kernels/pck/pck00010.tpc',
     'pds/data/lro-l-spice-6-v1.0/lrosp_1000/data/spk/de421.bsp',
@@ -45,7 +44,7 @@ def download_kernel(file_path, base_url=const.SPICE_BASE_URL, base_folder=const.
 def setup_spice(kernels=None, base_url=const.SPICE_BASE_URL, base_folder=const.KERNEL_ROOT):
     if kernels is None:
         kernels = KERNELS
-    kernels = list(map(Path, kernels))
+    kernels = tuple(map(Path, kernels))
 
     for k in kernels:
         download_kernel(k, base_url, base_folder)

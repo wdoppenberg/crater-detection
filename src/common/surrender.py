@@ -18,13 +18,14 @@ UA = UA2KM * 1e3
 
 
 def setup_renderer(
-        fov=const.CAMERA_FOV,
-        raytracing=False,
-        preview_mode=False,
-        resolution=const.CAMERA_RESOLUTION,
-        hostname='127.0.0.1',
-        port=5151
-):
+            fov=const.CAMERA_FOV,
+            raytracing=False,
+            preview_mode=False,
+            resolution=const.CAMERA_RESOLUTION,
+            hostname='127.0.0.1',
+            port=5151
+        ):
+
     # Image setup:
     raytracing = raytracing
     rays = 64

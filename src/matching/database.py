@@ -1,148 +1,22 @@
-from functools import partial
 from itertools import repeat
 
 import networkx as nx
 import numpy as np
 import numpy.linalg as LA
 import pandas as pd
-from astropy.coordinates import cartesian_to_spherical, spherical_to_cartesian
+from astropy.coordinates import spherical_to_cartesian
 from scipy.spatial import KDTree
 from sklearn.neighbors import radius_neighbors_graph
 
 import src.common.constants as const
-from src.common.camera import camera_matrix
 from common.conics import crater_camera_homography
+from common.robbins import load_craters
+from src.common.camera import camera_matrix
 from src.common.conics import crater_representation, conic_center
-from src.common.coordinates import ENU_system, nadir_attitude
+from src.common.coordinates import nadir_attitude
 from src.matching.position_estimation import calculate_position
 from src.matching.projective_invariants import CoplanarInvariants
-from src.matching.utils import triad_splice, get_cliques_by_length, shift_nd
-
-
-def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",
-                 latlims=None,
-                 longlims=None,
-                 diamlims=const.DIAMLIMS,
-                 ellipse_limit=const.MAX_ELLIPTICITY,
-                 arc_lims=0.8
-                 ):
-    df_craters = pd.read_csv(path)
-    df_craters.query("ARC_IMG > @arc_lims", inplace=True)
-
-    if latlims:
-        lat0, lat1 = latlims
-        df_craters.query('(LAT_ELLI_IMG > @lat0) & (LAT_ELLI_IMG < @lat1)', inplace=True)
-    if longlims:
-        long0, long1 = longlims
-        df_craters.query('(LON_ELLI_IMG > @long0) & (LON_ELLI_IMG < @long1)', inplace=True)
-    if diamlims:
-        diam0, diam1 = diamlims
-        df_craters.query('(DIAM_CIRC_IMG >= @diam0) & (DIAM_CIRC_IMG <= @diam1)', inplace=True)
-
-    df_craters.dropna(inplace=True)
-    df_craters.query('(DIAM_ELLI_MAJOR_IMG/DIAM_ELLI_MINOR_IMG) <= @ellipse_limit', inplace=True)
-
-    return df_craters
-
-
-def extract_robbins_dataset(df=None, column_keys=None, radians=True):
-    if df is None:
-        df = load_craters()
-
-    if column_keys is None:
-        column_keys = dict(lat='LAT_ELLI_IMG', long='LON_ELLI_IMG', major='DIAM_ELLI_MAJOR_IMG',
-                           minor='DIAM_ELLI_MINOR_IMG', angle='DIAM_ELLI_ANGLE_IMG', id='CRATER_ID')
-
-    lat, long = df[[column_keys['lat'], column_keys['long']]].to_numpy().T
-    major, minor = df[[column_keys['major'], column_keys['minor']]].to_numpy().T
-    psi = df[column_keys['angle']].to_numpy()
-    if radians:
-        lat, long = map(np.radians, (lat, long))  # ALWAYS CONVERT TO RADIANS
-        psi = np.radians(psi)
-    crater_id = df[column_keys['id']].to_numpy()
-
-    return lat, long, major, minor, psi, crater_id
-
-
-# Deprecated
-def _gen_local_cartesian_coords(lat, long, x, y, z, crater_triads, Rbody=const.RMOON):
-    avg_triad_x, avg_triad_y, avg_triad_z = map(lambda c: np.sum(triad_splice(c, crater_triads), axis=0) / 3.,
-                                                (x, y, z))
-    _, avg_triad_lat, avg_triad_long = cartesian_to_spherical(avg_triad_x, avg_triad_y, avg_triad_z)
-    avg_triad_lat, avg_triad_long = map(np.array, (avg_triad_lat, avg_triad_long))
-
-    dlat = np.array(triad_splice(lat, crater_triads)) - np.tile(avg_triad_lat, (3, 1))
-    dlong = np.array(triad_splice(long, crater_triads)) - np.tile(avg_triad_long, (3, 1))
-
-    """
-    Use Haversine great circle function decomposed for lat & long to generate approximations for cartesian coordinates
-    in a 2D ENU-reference frame.
-    """
-    x_triads = np.array(
-        [2 * Rbody * np.arcsin(np.cos(np.radians(avg_triad_lat)) * np.sin(dlong_i / 2)) for dlong_i in dlong]
-    )
-    y_triads = np.array([Rbody * dlat_i for dlat_i in dlat])
-
-    return x_triads, y_triads
-
-
-def gen_ENU_coordinates(lat, long, crater_triads, Rbody=const.RMOON):
-    """Generate local 2D coordinates for crater triads by constructing a plane normal to the centroid. This is an
-    approximation that is only valid for craters that, for practical reasons, can be considered coplanar.
-
-    Using the coordinate system defined using:
-
-    .. math::
-        \mathbf{u}_i = \mathbf{p}^{(c)}_{M_i}/||\mathbf{p}^{(c)}_{M_i}||
-
-        \mathbf{e}_i = cross(\mathbf{k}, \mathbf{u}_i )/|| cross(\mathbf{k}, \mathbf{u}_i) ||
-
-        \mathbf{n}_i = cross(\mathbf{u}_i, \mathbf{e}_i)/|| cross(\mathbf{u}_i, \mathbf{e}_i) ||
-
-    with
-
-    .. math::
-        \mathbf{k} = [0 & 0 & 1]^T
-
-    and :math:`p_{Mi}` is the selenographic 3D cartesian coordinate derived from latitude & longitude.
-
-    Parameters
-    ----------
-    lat : np.ndarray
-        Crater latitude [radians]
-    long : np.ndarray
-        Crater longitude [radians]
-    crater_triads : np.ndarray
-        Crater triad indices (nx3) for slicing arrays
-    Rbody : float, optional
-        Body radius, defaults to RMOON [km]
-    Returns
-    -------
-    x_triad, y_triad : np.ndarray
-        3xN array containing x or y coordinate in a per-triad ENU 2D (East, North) coordinate system.
-    """
-    x, y, z = map(np.array, spherical_to_cartesian(Rbody, lat[crater_triads], long[crater_triads]))
-    avg_x, avg_y, avg_z = map(partial(np.mean, axis=-1), (x, y, z))
-
-    p_centroid = np.array([avg_x, avg_y, avg_z])[:, None].transpose(2, 0, 1)
-
-    e_i, n_i, u_i = ENU_system(p_centroid)
-
-    T_ME = LA.inv(np.concatenate((e_i, n_i, u_i), axis=-1))
-
-    dx, dy, dz = x - avg_x[:, None], y - avg_y[:, None], z - avg_z[:, None]
-    delta_pos = np.concatenate((dx[None, :], dy[None, :], dz[None, :]), axis=0).T[..., None]
-    ENU_pos = T_ME @ delta_pos
-
-    if np.mean(np.abs(ENU_pos[..., 2, 0])) / np.mean(np.abs(ENU_pos[..., 0, 0])) > 0.05 or \
-            np.mean(np.abs(ENU_pos[..., 2, 0])) / np.mean(np.abs(ENU_pos[..., 1, 0])) > 0.05:
-        raise Warning("Average absolute Z-component in ENU coordinate system exceeds 5%!")
-
-    # Z-component is negligible, as is intended.
-    x_triad = ENU_pos[:, :, 0, 0]
-    y_triad = ENU_pos[:, :, 1, 0]
-
-    return x_triad, y_triad
+from src.matching.utils import get_cliques_by_length, shift_nd
 
 
 class CraterDatabase:
@@ -445,7 +319,3 @@ class CraterDatabase:
 
     def __len__(self):
         return len(self._features)
-
-
-if __name__ == "__main__":
-    db = CraterDatabase.from_file()
