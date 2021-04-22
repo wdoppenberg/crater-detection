@@ -7,7 +7,7 @@ from surrender.geometry import vec4, gaussian, quat, vec3
 from surrender.surrender_client import surrender_client
 
 import src.common.constants as const
-from .camera import Renderer
+from .camera import Camera
 from .coordinates import suborbital_coords
 from .spice import get_sun_pos, get_earth_pos, setup_spice, get_sol_incidence
 
@@ -75,7 +75,7 @@ def setup_renderer(
     return s
 
 
-class SurRenderer(Renderer):
+class SurRenderer(Camera):
     """
     SurRender software wrapper for Lunar scene generation with accurately generated Sun & Earth positions.
     """

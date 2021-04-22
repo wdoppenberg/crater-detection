@@ -397,16 +397,3 @@ class Camera:
 
     def point_nadir(self):
         self.attitude = np.concatenate(nadir_attitude(self.position), axis=-1)
-
-
-class Renderer(Camera, ABC):
-    @property
-    def scene_time(self):
-        raise NotImplementedError
-
-    @scene_time.setter
-    def scene_time(self, scene_time):
-        raise NotImplementedError
-
-    def generate_image(self) -> np.ndarray:
-        raise NotImplementedError
