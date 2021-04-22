@@ -104,15 +104,15 @@ class DataGenerator(SurRenderer, ConicProjector):
 
 
 def generate(size,
-             axis_threshold=(5, 100),
+             axis_threshold=const.AXIS_THRESHOLD,
              resolution=const.CAMERA_RESOLUTION,
              fov=const.CAMERA_FOV,
              min_sol_incidence=0,
              max_sol_incidence=85,
              filled=False,
-             ellipse_limit=1.4,
+             ellipse_limit=const.MAX_ELLIPTICITY,
              arc_lims=0.85,
-             diamlims=(1, 200),
+             diamlims=const.DIAMLIMS,
              instancing=False,
              randomized_orientation=True,
              mask_thickness=1
@@ -145,7 +145,7 @@ def generate(size,
         date_dataset[i] = np.array((date.year, date.month, date.day))
 
         while not (min_sol_incidence <= generator.solar_incidence_angle <= max_sol_incidence):
-            generator.set_random_position()  # Attribute setter will generate random position
+            generator.set_random_position()  # Generate random position
 
         position_dataset[i] = generator.position
         sol_incidence_dataset[i] = generator.solar_incidence_angle
@@ -167,15 +167,15 @@ def generate(size,
 
 
 def demo_settings(n_demo=20,
-                  axis_threshold=(5, 100),
+                  axis_threshold=const.AXIS_THRESHOLD,
                   resolution=const.CAMERA_RESOLUTION,
                   fov=const.CAMERA_FOV,
                   min_sol_incidence=0,
                   max_sol_incidence=85,
                   filled=False,
-                  ellipse_limit=1.4,
-                  arc_lims=0.85,
-                  diamlims=(1, 200),
+                  ellipse_limit=const.MAX_ELLIPTICITY,
+                  arc_lims=const.ARC_LIMS,
+                  diamlims=const.DIAMLIMS,
                   instancing=False,
                   randomized_orientation=True,
                   mask_thickness=1):
