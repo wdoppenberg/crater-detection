@@ -10,7 +10,8 @@ from scipy.spatial import KDTree
 from sklearn.neighbors import radius_neighbors_graph
 
 import src.common.constants as const
-from src.common.camera import crater_camera_homography, camera_matrix
+from src.common.camera import camera_matrix
+from common.conics import crater_camera_homography
 from src.common.conics import crater_representation, conic_center
 from src.common.coordinates import ENU_system, nadir_attitude
 from src.matching.position_estimation import calculate_position

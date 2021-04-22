@@ -1,4 +1,3 @@
-from abc import ABC
 from collections.abc import Iterable
 from typing import Union, Tuple
 
@@ -8,7 +7,7 @@ from astropy.coordinates import spherical_to_cartesian
 from scipy.spatial.transform import Rotation
 
 import src.common.constants as const
-from src.common.coordinates import ENU_system, nadir_attitude
+from src.common.coordinates import nadir_attitude
 
 
 def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alpha=0):
@@ -78,92 +77,6 @@ def projection_matrix(K, T_CM, r_M):
 
     """
     return K @ LA.inv(T_CM) @ np.concatenate((np.identity(3), -r_M), axis=1)
-
-
-def crater_camera_homography(r_craters, P_MC):
-    """Calculate homography between crater-plane and camera reference frame.
-
-    .. math:: \mathbf{H}_{C_i} =  ^\mathcal{M}\mathbf{P}_\mathcal{C_{craters}} [[H_{M_i}], [k^T]]
-
-    Parameters
-    ----------
-    r_craters : np.ndarray
-        (Nx)3x1 position vector of craters.
-    P_MC : np.ndarray
-        (Nx)3x4 projection matrix from selenographic frame to camera pixel frame.
-
-    Returns
-    -------
-        (Nx)3x3 homography matrix
-    """
-    S = np.concatenate((np.identity(2), np.zeros((1, 2))), axis=0)
-    k = np.array([0, 0, 1])[:, None]
-
-    H_Mi = np.concatenate((np.concatenate(ENU_system(r_craters), axis=-1) @ S, r_craters), axis=-1)
-
-    return P_MC @ np.concatenate((H_Mi, np.tile(k.T[None, ...], (len(H_Mi), 1, 1))), axis=1)
-
-
-def project_crater_conics(C_craters, r_craters, fov, resolution, T_CM, r_M):
-    """Project crater conics into digital pixel frame. See pages 17 - 25 from [1] for methodology.
-
-    Parameters
-    ----------
-    C_craters : np.ndarray
-        Nx3x3 array of crater conics
-    r_craters : np.ndarray
-        Nx3x1 position vector of craters.
-    fov : float, Iterable
-        Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
-    resolution : int, Iterable
-        Image resolution, if type is Iterable it will be interpreted as (res_x, res_y)
-    T_CM : np.ndarray
-        3x3 matrix representing camera attitude in world reference frame
-    r_M : np.ndarray
-        3x1 position vector of camera
-
-    Returns
-    -------
-    np.ndarray
-        Nx3x3 Homography matrix H_Ci
-
-    References
-    ----------
-    .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
-    """
-
-    K = camera_matrix(fov, resolution)
-    P_MC = projection_matrix(K, T_CM, r_M)
-    H_Ci = crater_camera_homography(r_craters, P_MC)
-    return LA.inv(H_Ci).transpose((0, 2, 1)) @ C_craters @ LA.inv(H_Ci)
-
-
-def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
-    """Project crater centers into digital pixel frame.
-
-    Parameters
-    ----------
-    r_craters : np.ndarray
-        Nx3x1 position vector of craters.
-    fov : int, float, Iterable
-        Field-of-View angle (radians), if type is Iterable it will be interpreted as (fov_x, fov_y)
-    resolution : int, Iterable
-        Image resolution, if type is Iterable it will be interpreted as (res_x, res_y)
-    T_CM : np.ndarray
-        3x3 matrix representing camera attitude in world reference frame
-    r_M : np.ndarray
-        3x1 position vector of camera
-
-    Returns
-    -------
-    np.ndarray
-        Nx2x1 2D positions of craters in pixel frame
-    """
-
-    K = camera_matrix(fov, resolution)
-    P_MC = projection_matrix(K, T_CM, r_M)
-    H_Ci = crater_camera_homography(r_craters, P_MC)
-    return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
 
 
 class Camera:
