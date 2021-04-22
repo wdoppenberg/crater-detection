@@ -89,7 +89,8 @@ class Camera:
                  attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION,
-                 orbiting_body_radius=const.RMOON
+                 orbiting_body_radius=const.RMOON,
+                 **kwargs
                  ):
 
         self._orbiting_body_radius = orbiting_body_radius

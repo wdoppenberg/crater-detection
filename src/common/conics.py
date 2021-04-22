@@ -326,13 +326,10 @@ class MaskGenerator(ConicProjector):
                  filled=False,
                  instancing=True,
                  mask_thickness=1,
-                 position=None,
-                 resolution=const.CAMERA_RESOLUTION,
-                 fov=const.CAMERA_FOV,
-                 orbiting_body_radius=const.RMOON
+                 **kwargs
                  ):
-        super(MaskGenerator, self).__init__(position=position, resolution=resolution, fov=fov,
-                                            orbiting_body_radius=orbiting_body_radius)
+
+        super(MaskGenerator, self).__init__(**kwargs)
 
         self.axis_threshold = axis_threshold
         self.mask_thickness = mask_thickness

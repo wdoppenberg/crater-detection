@@ -82,26 +82,21 @@ class SurRenderer(Camera):
     """
 
     def __init__(self,
-                 position=None,
-                 attitude=None,
-                 fov=const.CAMERA_FOV,
-                 resolution=const.CAMERA_RESOLUTION,
                  DEM_filename="FullMoon.dem",
                  texture_filename="lroc_color_poles.tiff",
                  scene_time=dt.datetime(2021, 1, 1),
-                 orbiting_body_radius=const.RMOON
+                 **kwargs
                  ):
-        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution,
-                         orbiting_body_radius=orbiting_body_radius)
+        super().__init__(**kwargs)
 
         self.scene_time = scene_time
         setup_spice()
-        self.__setup_backend(DEM_filename=DEM_filename, texture_filename=texture_filename)
+        self._setup_backend(DEM_filename=DEM_filename, texture_filename=texture_filename)
         self.__sync_backend()
 
-    def __setup_backend(self,
-                        DEM_filename="FullMoon.dem",
-                        texture_filename="lroc_color_poles.tiff"):
+    def _setup_backend(self,
+                       DEM_filename="FullMoon.dem",
+                       texture_filename="lroc_color_poles.tiff"):
         self.backend = setup_renderer(fov=self.fov, resolution=self.resolution)
 
         self.backend.createBRDF('sun', 'sun.brdf', {})

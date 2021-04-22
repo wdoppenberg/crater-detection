@@ -13,6 +13,9 @@ from src.common.surrender import SurRenderer
 
 
 class DataGenerator(MaskGenerator, SurRenderer):
+    def __init__(self, *args, **kwargs):
+        super(DataGenerator, self).__init__(*args, **kwargs)
+
     def image_mask_pair(self):
         return self.generate_image(), self.generate_mask()
 
@@ -25,7 +28,7 @@ def generate(size,
              max_sol_incidence=85,
              filled=False,
              ellipse_limit=const.MAX_ELLIPTICITY,
-             arc_lims=0.85,
+             arc_lims=const.ARC_LIMS,
              diamlims=const.DIAMLIMS,
              instancing=False,
              randomized_orientation=True,
@@ -120,12 +123,29 @@ def make_dataset(n_training,
                  n_testing,
                  output_path=None,
                  identifier=None,
-                 **generation_kwargs):
+                 generation_kwargs=None):
+
     if output_path is None:
         if identifier is None:
             identifier = str(uuid.uuid4())
 
         output_path = f"data/dataset_{identifier}.h5"
+
+    if generation_kwargs is None:
+        generation_kwargs = dict(
+            axis_threshold=const.AXIS_THRESHOLD,
+            resolution=const.CAMERA_RESOLUTION,
+            fov=const.CAMERA_FOV,
+            min_sol_incidence=0,
+            max_sol_incidence=85,
+            filled=False,
+            ellipse_limit=const.MAX_ELLIPTICITY,
+            arc_lims=const.ARC_LIMS,
+            diamlims=const.DIAMLIMS,
+            instancing=False,
+            randomized_orientation=True,
+            mask_thickness=1
+        )
 
     if os.path.exists(output_path):
         raise ValueError(f"Dataset named `{os.path.basename(output_path)}` already exists!")

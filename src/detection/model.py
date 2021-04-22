@@ -14,8 +14,8 @@ def create_detection_model(backbone_name='resnet18'):
         num_classes=2,
         min_size=256,
         max_size=256,
-        image_mean=[0.46],
-        image_std=[0.2]
+        image_mean=[0.156],
+        image_std=[0.272]
     )
 
     return model

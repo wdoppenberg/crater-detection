@@ -27,14 +27,12 @@ class CraterDataset(Dataset):
                  file_path,
                  group,
                  transforms=None,
-                 stretch=1,
                  histogram_matching=False,
                  gaussian_blur=False,
                  clahe=False
                  ):
         self.file_path = file_path
         self.group = group
-        self.stretch = stretch
         self.dataset = None
         self.gaussian_blur = gaussian_blur
         self.clahe = clahe
@@ -42,7 +40,7 @@ class CraterDataset(Dataset):
         if histogram_matching:
             with h5py.File(self.file_path, 'r') as hf:
                 images = hf['training/images'][:]
-                images = (images / np.max(images, axis=(-2, -1))[..., None, None]) * self.stretch
+                images = (images / np.max(images, axis=(-2, -1))[..., None, None])
                 ref_hist, _ = np.histogram(images.flatten(), 256, [0, 256])
                 self.ref_cdf = calculate_cdf(ref_hist)
         else:
@@ -54,8 +52,6 @@ class CraterDataset(Dataset):
 
         images = self.dataset[self.group]["images"][idx]
         masks = self.dataset[self.group]["masks"][idx]
-
-        images = (images / np.max(images, axis=(-2, -1))[..., None, None]) * self.stretch
 
         if self.gaussian_blur or self.ref_cdf is not None or self.clahe:
             clahe = cv2.createCLAHE(tileGridSize=(8, 8))
