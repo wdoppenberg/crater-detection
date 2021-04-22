@@ -95,7 +95,7 @@ class SurRenderer(Camera):
 
         self.scene_time = scene_time
         setup_spice()
-        self.__setup_backend()
+        self.__setup_backend(DEM_filename=DEM_filename, texture_filename=texture_filename)
         self.__sync_backend()
 
     def __setup_backend(self,
