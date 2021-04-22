@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Iterable
 from typing import Union, Tuple
 
@@ -30,7 +30,7 @@ def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alph
 
     References
     ----------
-    .. [1] http://www.cs.ucf.edu/~mtappen/cap5415/lecs/lec19.pdf
+    .. [1] https://www.cs.ucf.edu/~mtappen/cap5415/lecs/lec19.pdf
     """
 
     if isinstance(resolution, Iterable):
@@ -70,7 +70,7 @@ def projection_matrix(K, T_CM, r_M):
 
     References
     ----------
-    .. [1] http://www.cs.ucf.edu/~mtappen/cap5415/lecs/lec19.pdf
+    .. [1] https://www.cs.ucf.edu/~mtappen/cap5415/lecs/lec19.pdf
 
     See Also
     --------
@@ -83,7 +83,7 @@ def projection_matrix(K, T_CM, r_M):
 def crater_camera_homography(r_craters, P_MC):
     """Calculate homography between crater-plane and camera reference frame.
 
-    .. math:: \mathbf{H}_{C_i} =  ^\mathcal{M}\mathbf{P}_\mathcal{C_craters} [[H_{M_i}], [k^T]]
+    .. math:: \mathbf{H}_{C_i} =  ^\mathcal{M}\mathbf{P}_\mathcal{C_{craters}} [[H_{M_i}], [k^T]]
 
     Parameters
     ----------
@@ -129,7 +129,7 @@ def project_crater_conics(C_craters, r_craters, fov, resolution, T_CM, r_M):
 
     References
     ----------
-    .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+    .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
     """
 
     K = camera_matrix(fov, resolution)
@@ -168,38 +168,27 @@ def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
 
 class Camera:
     """
-    Camera data class with associated projection methods.
+    Camera data class with associated state attributes & functions.
     """
 
     def __init__(self,
-                 position,
+                 position=None,
                  attitude=None,
                  fov=const.CAMERA_FOV,
-                 resolution=const.CAMERA_RESOLUTION
+                 resolution=const.CAMERA_RESOLUTION,
+                 orbiting_body_radius=const.RMOON
                  ):
 
-        # Ensure 3x1 vector
-        if len(position.shape) == 1:
-            position = position[:, None]
-        elif len(position.shape) > 2:
-            raise ValueError("Position vector must be 1 or 2-dimensional (3x1)!")
-
-        self.__r = None
-        self.__T = None
+        self._orbiting_body_radius = orbiting_body_radius
+        self.__position = None
+        self.__attitude = None
         self.__fov = None
         self.__resolution = None
 
         self.position = position
         self.fov = fov
         self.resolution = resolution
-
-        if attitude is None:
-            self.attitude = np.concatenate(nadir_attitude(self.position), axis=-1)
-
-            if LA.matrix_rank(self.attitude) != 3:
-                raise ValueError("Invalid camera attitude matrix!:\n", self.attitude)
-        else:
-            self.attitude = attitude
+        self.attitude = attitude
 
     @classmethod
     def from_coordinates(cls,
@@ -208,72 +197,114 @@ class Camera:
                          altitude,
                          fov=const.CAMERA_FOV,
                          resolution=const.CAMERA_RESOLUTION,
-                         T=None,
+                         attitude=None,
                          Rbody=const.RMOON,
                          convert_to_radians=False
                          ):
         if convert_to_radians:
             lat, long = map(np.radians, (lat, long))
 
-        r_M = np.array(spherical_to_cartesian(Rbody + altitude, lat, long))[:, None]
-        return cls(position=r_M, attitude=T, fov=fov, resolution=resolution)
+        position = np.array(spherical_to_cartesian(Rbody + altitude, lat, long))
+        return cls(position=position, attitude=attitude, fov=fov, resolution=resolution)
 
     @property
     def position(self) -> np.ndarray:
-        return self.__r
+        return self.__position
 
     @position.setter
     def position(self, position: np.ndarray):
         """
         Sets instance's position in Cartesian space.
 
+        If set to None, a random position above the moon will be generated between 150 and 400 km altitude.
+
         Parameters
         ----------
         position : np.ndarray
             3x1 position vector of camera.
         """
-        if LA.norm(position) < const.RMOON:
-            raise ValueError(
-                f"New position vector is inside the Moon! (Altitude = {LA.norm(position):.2f} km, "
-                f"R_moon = {const.RMOON})"
-            )
+        if position is None:
+            self.set_random_position()
 
-        if not position.dtype == np.float64:
-            position = position.astype(np.float64)
+        else:
+            # Ensure 3x1 vector
+            if len(position.shape) == 1:
+                position = position[:, None]
+            elif len(position.shape) > 2:
+                raise ValueError("Position vector must be 1 or 2-dimensional (3x1)!")
 
-        self.__r = position
+            if LA.norm(position) < self._orbiting_body_radius:
+                raise ValueError(
+                    f"New position vector is inside the Moon! (Distance to center = {LA.norm(position):.2f} km, "
+                    f"R_moon = {self._orbiting_body_radius})"
+                )
+
+            if not position.dtype == np.float64:
+                position = position.astype(np.float64)
+
+            self.__position = position
+
+    def set_coordinates(self,
+                        lat,
+                        long,
+                        height=None,
+                        point_nadir=False,
+                        convert_to_radians=False
+                        ):
+        if height is None:
+            height = self.height
+
+        if convert_to_radians:
+            lat, long = map(np.radians, (lat, long))
+
+        self.position = np.array(spherical_to_cartesian(self._orbiting_body_radius + height, lat, long))
+
+        if point_nadir:
+            self.point_nadir()
+
+    def set_random_position(self, min_height=150, max_height=400):
+        lat = np.random.randint(-90, 90)
+        long = np.random.randint(-180, 180)
+        height = np.random.randint(min_height, max_height)
+        self.set_coordinates(lat, long, height, point_nadir=True, convert_to_radians=True)
 
     # Alias
-    r = position
+    r: np.ndarray = position
 
     @property
     def attitude(self) -> np.ndarray:
-        return self.__T
+        return self.__attitude
 
     @attitude.setter
-    def attitude(self, T: Union[np.ndarray, Rotation]):
+    def attitude(self, attitude: Union[np.ndarray, Rotation]):
         """
         Sets instance's attitude
 
         Parameters
         ----------
-        T : np.ndarray, Rotation
+        attitude : np.ndarray, Rotation
             Orientation / attitude matrix (3x3) or scipy.spatial.transform.Rotation
 
         See Also
         --------
         scipy.spatial.transform.Rotation
         """
-        if isinstance(T, Rotation):
-            T = T.as_matrix()
+        if attitude is None:
+            self.point_nadir()
+        else:
+            if isinstance(attitude, Rotation):
+                attitude = attitude.as_matrix()
 
-        if not np.isclose(abs(LA.det(T)), 1):
-            raise ValueError(f"Invalid rotation matrix! Determinant should be +-1, is {LA.det(T)}.")
+            if not np.isclose(abs(LA.det(attitude)), 1):
+                raise ValueError(f"Invalid rotation matrix! Determinant should be +-1, is {LA.det(attitude)}.")
 
-        self.__T = T
+            if LA.matrix_rank(attitude) != 3:
+                raise ValueError("Invalid camera attitude matrix!:\n", attitude)
+
+            self.__attitude = attitude
 
     # Alias
-    T = attitude
+    T: np.ndarray = attitude
 
     @property
     def fov(self) -> Tuple:
@@ -318,14 +349,33 @@ class Camera:
         return camera_matrix(fov=self.fov, resolution=self.resolution)
 
     # Alias
-    K = camera_matrix
+    K: np.ndarray = camera_matrix
 
     @property
     def projection_matrix(self) -> np.ndarray:
-        return projection_matrix(K=self.K, T_CM=self.T, r_M=self.r)
+        return projection_matrix(K=self.K, T_CM=self.attitude, r_M=self.position)
 
     # Alias
-    P = projection_matrix
+    P: np.ndarray = projection_matrix
+
+    @property
+    def height(self):
+        return LA.norm(self.position) - self._orbiting_body_radius
+
+    @height.setter
+    def height(self, height):
+        """
+        Adjusts radial height without changing angular position.
+
+        Parameters
+        ----------
+        height: int, float
+            Height to set to in km.
+        """
+        if height <= 0:
+            raise ValueError(f"Height cannot be below 0! (height = {height})")
+
+        self.position = (self.position / LA.norm(self.position)) * (self._orbiting_body_radius + height)
 
     def rotate(self, axis: str, angle: float, degrees: bool = True, reset_first: bool = False):
         if axis not in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
@@ -341,39 +391,15 @@ class Camera:
         if reset_first:
             self.point_nadir()
 
-        self.T = (Rotation.from_matrix(self.T) * Rotation.from_euler(axis, angle, degrees=degrees)).as_matrix()
+        self.attitude = (
+                Rotation.from_matrix(self.attitude) * Rotation.from_euler(axis, angle, degrees=degrees)
+            ).as_matrix()
 
     def point_nadir(self):
-        self.T = np.concatenate(nadir_attitude(self.r), axis=-1)
-
-
-class ConicProjector(Camera):
-    def __init__(self,
-                 position,
-                 attitude=None,
-                 fov=const.CAMERA_FOV,
-                 resolution=const.CAMERA_RESOLUTION
-                 ):
-        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
-
-    def project_crater_conics(self, C, r_craters):
-        H_Ci = crater_camera_homography(r_craters, self.P)
-        return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
-
-    def project_crater_centers(self, r_craters):
-        H_Ci = crater_camera_homography(r_craters, self.P)
-        return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
+        self.attitude = np.concatenate(nadir_attitude(self.position), axis=-1)
 
 
 class Renderer(Camera, ABC):
-    def __init__(self,
-                 position,
-                 attitude=None,
-                 fov=const.CAMERA_FOV,
-                 resolution=const.CAMERA_RESOLUTION
-                 ):
-        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
-
     @property
     def scene_time(self):
         raise NotImplementedError
@@ -382,5 +408,5 @@ class Renderer(Camera, ABC):
     def scene_time(self, scene_time):
         raise NotImplementedError
 
-    def get_image(self) -> np.ndarray:
+    def generate_image(self) -> np.ndarray:
         raise NotImplementedError

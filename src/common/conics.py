@@ -3,12 +3,10 @@ from typing import Union
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import datetime as dt
 import torch
 from matplotlib.collections import EllipseCollection
-from numpy import linalg as LA
-
 from numba import njit
+from numpy import linalg as LA
 
 import src.common.constants as const
 from src.common.camera import Camera, crater_camera_homography
@@ -89,14 +87,14 @@ def crater_representation(a, b, psi, x=0, y=0):
     out[..., 1, 1] = C
     out[..., 2, 2] = G
 
-    out[..., 1, 0] = B/2
-    out[..., 0, 1] = B/2
+    out[..., 1, 0] = B / 2
+    out[..., 0, 1] = B / 2
 
-    out[..., 2, 0] = D/2
-    out[..., 0, 2] = D/2
+    out[..., 2, 0] = D / 2
+    out[..., 0, 2] = D / 2
 
-    out[..., 2, 1] = F/2
-    out[..., 1, 2] = F/2
+    out[..., 2, 1] = F / 2
+    out[..., 1, 2] = F / 2
 
     return scale_det(out)
 
@@ -198,10 +196,62 @@ def generate_mask(A_craters,
 
 
 class ConicProjector(Camera):
-    def project_crater_conics(self, C, r_craters):
+    def project_crater_conics(self, C_craters, r_craters):
         H_Ci = crater_camera_homography(r_craters, self.projection_matrix)
-        return LA.inv(H_Ci).transpose((0, 2, 1)) @ C @ LA.inv(H_Ci)
+        return LA.inv(H_Ci).transpose((0, 2, 1)) @ C_craters @ LA.inv(H_Ci)
 
     def project_crater_centers(self, r_craters):
         H_Ci = crater_camera_homography(r_craters, self.projection_matrix)
         return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
+
+    def generate_mask(self,
+                      A_craters=None,
+                      C_craters=None,
+                      r_craters=None,
+                      filled=False,
+                      instancing=True,
+                      thickness=1):
+
+        if A_craters is None:
+            if C_craters is None or r_craters is None:
+                raise ValueError("Must provide either crater data in respective ENU-frame (C_craters & r_craters) "
+                                 "or in image-frame (A_craters)!")
+
+            A_craters = self.project_crater_conics(C_craters, r_craters)
+
+        a_proj, b_proj = map(lambda x: x / 2, ellipse_axes(A_craters))
+        psi_proj = np.degrees(ellipse_angle(A_craters))
+        r_pix_proj = conic_center(A_craters)
+
+        a_proj, b_proj, psi_proj, r_pix_proj = map(lambda num: np.round(num).astype(int),
+                                                   (a_proj, b_proj, psi_proj, r_pix_proj))
+
+        mask = np.zeros(self.resolution)
+
+        if filled:
+            thickness = -1
+
+        if instancing:
+            for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj)):
+                if a >= 1 and b >= 1:
+                    mask = cv2.ellipse(mask,
+                                       (x, y),
+                                       (a, b),
+                                       psi,
+                                       0,
+                                       360,
+                                       i,
+                                       thickness)
+        else:
+            for a, b, x, y, psi in zip(a_proj, b_proj, *r_pix_proj.T, psi_proj):
+                if a >= 1 and b >= 1:
+                    mask = cv2.ellipse(mask,
+                                       (x, y),
+                                       (a, b),
+                                       psi,
+                                       0,
+                                       360,
+                                       1,
+                                       thickness)
+
+        return mask

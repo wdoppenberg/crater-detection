@@ -1,15 +1,15 @@
+import datetime as dt
 from collections import Iterable
-from typing import Union
 
 import numpy as np
-import datetime as dt
 from scipy.spatial.transform import Rotation
 from surrender.geometry import vec4, gaussian, quat, vec3
 from surrender.surrender_client import surrender_client
 
 import src.common.constants as const
 from .camera import Renderer
-from .spice import get_sun_pos, get_earth_pos, setup_spice
+from .coordinates import suborbital_coords
+from .spice import get_sun_pos, get_earth_pos, setup_spice, get_sol_incidence
 
 SUN_RADIUS = 696342e3
 EARTH_RADIUS = 6371e3
@@ -18,13 +18,13 @@ UA = UA2KM * 1e3
 
 
 def setup_renderer(
-            fov=const.CAMERA_FOV,
-            raytracing=False,
-            preview_mode=False,
-            resolution=const.CAMERA_RESOLUTION,
-            hostname='127.0.0.1',
-            port=5151
-        ):
+        fov=const.CAMERA_FOV,
+        raytracing=False,
+        preview_mode=False,
+        resolution=const.CAMERA_RESOLUTION,
+        hostname='127.0.0.1',
+        port=5151
+):
     # Image setup:
     raytracing = raytracing
     rays = 64
@@ -79,16 +79,19 @@ class SurRenderer(Renderer):
     """
     SurRender software wrapper for Lunar scene generation with accurately generated Sun & Earth positions.
     """
+
     def __init__(self,
-                 position,
+                 position=None,
                  attitude=None,
                  fov=const.CAMERA_FOV,
                  resolution=const.CAMERA_RESOLUTION,
                  DEM_filename="FullMoon.dem",
                  texture_filename="lroc_color_poles.tiff",
-                 scene_time=dt.datetime(2021, 1, 1)
+                 scene_time=dt.datetime(2021, 1, 1),
+                 orbiting_body_radius=const.RMOON
                  ):
-        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution)
+        super().__init__(position=position, attitude=attitude, fov=fov, resolution=resolution,
+                         orbiting_body_radius=orbiting_body_radius)
 
         self.scene_time = scene_time
         setup_spice()
@@ -129,6 +132,7 @@ class SurRenderer(Renderer):
         # TODO: Fix resolution adjustment.
 
         self.backend.setCameraFOVDeg(*self.fov)
+        # self.backend.setImageSize(*self.resolution)
         self.backend.setObjectPosition('camera', self.position.ravel() * 1e3)
         self.backend.setObjectAttitude('camera', Rotation.from_matrix(self.attitude).as_quat())
         self.backend.setObjectPosition('earth', self.earth_pos * 1e3)
@@ -150,7 +154,11 @@ class SurRenderer(Renderer):
     def earth_pos(self):
         return get_earth_pos(self.scene_time)
 
-    def get_image(self, stretch=True) -> np.ndarray:
+    @property
+    def solar_incidence_angle(self):
+        return get_sol_incidence(self.scene_time, suborbital_coords(self.position).squeeze())
+
+    def generate_image(self, stretch=True) -> np.ndarray:
         self.__sync_backend()
 
         self.backend.render()

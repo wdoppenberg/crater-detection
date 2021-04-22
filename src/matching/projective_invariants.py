@@ -41,7 +41,7 @@ class PermutationInvariant:
 
         References
         ----------
-        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
         """
         return np.array((cls.F1(x, y, z), cls.F2(x, y, z), cls.F3(x, y, z)))
 
@@ -76,7 +76,7 @@ class PermutationInvariant:
 
         References
         ----------
-        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
 
         """
         return cls.G(x1, y1, z1, x2, y2, z2) / np.sqrt(np.sqrt(
@@ -103,7 +103,7 @@ class CoplanarInvariants:
 
         References
         ----------
-        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
         """
 
         self.crater_triads = crater_triads
@@ -203,7 +203,7 @@ class CoplanarInvariants:
 
         References
         ----------
-        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
         .. [2] Arnas, D., Fialho, M. A. A., & Mortari, D. (2017). Fast and robust kernel generators for star trackers. Acta Astronautica, 134 (August 2016), 291–302. https://doi.org/10.1016/j.actaastro.2017.02.016
         """
 
@@ -314,7 +314,7 @@ class CoplanarInvariants:
 
         References
         ----------
-        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+        .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
         """
 
         if permutation_invariant:

@@ -59,7 +59,7 @@ def derive_position(A_craters, r_craters, C_craters, T_CM, K, use_scale=False):
 
     References
     ----------
-    .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. http://arxiv.org/abs/2009.01228
+    .. [1] Christian, J. A., Derksen, H., & Watkins, R. (2020). Lunar Crater Identification in Digital Images. https://arxiv.org/abs/2009.01228
     """
     k = np.array([0., 0., 1.])[:, None]
     S = np.concatenate((np.identity(2), np.zeros((1, 2))), axis=0)
