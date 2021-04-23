@@ -20,40 +20,27 @@ class DataGenerator(MaskGenerator, SurRenderer):
         return self.generate_image(), self.generate_mask()
 
 
-def generate(size,
-             axis_threshold=const.AXIS_THRESHOLD,
-             resolution=const.CAMERA_RESOLUTION,
-             fov=const.CAMERA_FOV,
-             min_sol_incidence=0,
-             max_sol_incidence=85,
-             filled=False,
-             ellipse_limit=const.MAX_ELLIPTICITY,
-             arc_lims=const.ARC_LIMS,
-             diamlims=const.DIAMLIMS,
-             instancing=False,
-             randomized_orientation=True,
-             mask_thickness=1
-             ):
-    images_dataset = np.empty((size, 1, *resolution), np.float32)
-    if instancing:
-        masks_dataset = np.empty((size, 1, *resolution), np.int16)
+def generate(size, **kwargs):
+    images_dataset = np.empty((size, 1, *kwargs["resolution"]), np.float32)
+    if kwargs["instancing"]:
+        masks_dataset = np.empty((size, 1, *kwargs["resolution"]), np.int16)
     else:
-        masks_dataset = np.empty((size, 1, *resolution), np.bool_)
+        masks_dataset = np.empty((size, 1, *kwargs["resolution"]), np.bool_)
     position_dataset = np.empty((size, 3, 1), np.float64)
     attitude_dataset = np.empty((size, 3, 3), np.float64)
     sol_incidence_dataset = np.empty((size, 1), np.float16)
     date_dataset = np.empty((size, 3), int)
 
     generator = DataGenerator.from_robbins_dataset(
-        diamlims=diamlims,
-        ellipse_limit=ellipse_limit,
-        arc_lims=arc_lims,
-        axis_threshold=axis_threshold,
-        fov=fov,
-        resolution=resolution,
-        filled=filled,
-        mask_thickness=mask_thickness,
-        instancing=instancing
+        diamlims=kwargs["diamlims"],
+        ellipse_limit=kwargs["ellipse_limit"],
+        arc_lims=kwargs["arc_lims"],
+        axis_threshold=kwargs["axis_threshold"],
+        fov=kwargs["fov"],
+        resolution=kwargs["resolution"],
+        filled=kwargs["filled"],
+        mask_thickness=kwargs["mask_thickness"],
+        instancing=kwargs["instancing"]
     )
 
     for i in tq(range(size), desc="Creating dataset"):
@@ -61,17 +48,18 @@ def generate(size,
         generator.scene_time = date
         date_dataset[i] = np.array((date.year, date.month, date.day))
 
-        while not (min_sol_incidence <= generator.solar_incidence_angle <= max_sol_incidence):
+        while not (kwargs["min_sol_incidence"] <= generator.solar_incidence_angle <= kwargs["max_sol_incidence"]):
             generator.set_random_position()  # Generate random position
 
         position_dataset[i] = generator.position
         sol_incidence_dataset[i] = generator.solar_incidence_angle
 
-        if randomized_orientation:
+        generator.point_nadir()
+        if kwargs["randomized_orientation"]:
             # Rotations are incremental (order matters)
-            generator.rotate('roll', np.random.randint(-180, 180))
-            generator.rotate('pitch', np.random.randint(-10, 10))
-            generator.rotate('yaw', np.random.randint(-10, 10))
+            generator.rotate('roll', np.random.randint(0, 360))
+            generator.rotate('pitch', np.random.randint(-30, 30))
+            generator.rotate('yaw', np.random.randint(-30, 30))
 
         attitude_dataset[i] = generator.attitude
 
@@ -84,36 +72,16 @@ def generate(size,
 
 
 def demo_settings(n_demo=20,
-                  axis_threshold=const.AXIS_THRESHOLD,
-                  resolution=const.CAMERA_RESOLUTION,
-                  fov=const.CAMERA_FOV,
-                  min_sol_incidence=0,
-                  max_sol_incidence=85,
-                  filled=False,
-                  ellipse_limit=const.MAX_ELLIPTICITY,
-                  arc_lims=const.ARC_LIMS,
-                  diamlims=const.DIAMLIMS,
-                  instancing=False,
-                  randomized_orientation=True,
-                  mask_thickness=1):
-    images, mask, _, _, _, _ = generate(n_demo,
-                                        axis_threshold,
-                                        resolution,
-                                        fov,
-                                        min_sol_incidence,
-                                        max_sol_incidence,
-                                        filled,
-                                        ellipse_limit,
-                                        arc_lims,
-                                        diamlims,
-                                        instancing,
-                                        randomized_orientation,
-                                        mask_thickness)
+                  generation_kwargs=None):
+    generation_kwargs_ = const.GENERATION_KWARGS
+    if generation_kwargs is not None:
+        generation_kwargs_.update(generation_kwargs)
+    images, mask, _, _, _, _ = generate(n_demo, **generation_kwargs_)
 
     fig, axes = plt.subplots(n_demo, 2, figsize=(10, 5 * n_demo))
     for i in range(n_demo):
         axes[i, 0].imshow(images[i, 0], cmap='Greys_r')
-        axes[i, 1].imshow((mask[i, 0] > 0).astype(float), cmap='gray')
+        axes[i, 1].imshow(mask[i, 0], cmap='gray')
 
     plt.show()
 
@@ -124,28 +92,15 @@ def make_dataset(n_training,
                  output_path=None,
                  identifier=None,
                  generation_kwargs=None):
-
     if output_path is None:
         if identifier is None:
             identifier = str(uuid.uuid4())
 
         output_path = f"data/dataset_{identifier}.h5"
 
-    if generation_kwargs is None:
-        generation_kwargs = dict(
-            axis_threshold=const.AXIS_THRESHOLD,
-            resolution=const.CAMERA_RESOLUTION,
-            fov=const.CAMERA_FOV,
-            min_sol_incidence=0,
-            max_sol_incidence=85,
-            filled=False,
-            ellipse_limit=const.MAX_ELLIPTICITY,
-            arc_lims=const.ARC_LIMS,
-            diamlims=const.DIAMLIMS,
-            instancing=False,
-            randomized_orientation=True,
-            mask_thickness=1
-        )
+    generation_kwargs_ = const.GENERATION_KWARGS
+    if generation_kwargs is not None:
+        generation_kwargs_.update(generation_kwargs)
 
     if os.path.exists(output_path):
         raise ValueError(f"Dataset named `{os.path.basename(output_path)}` already exists!")
@@ -153,7 +108,7 @@ def make_dataset(n_training,
     with h5py.File(output_path, 'w') as hf:
         g_header = hf.create_group("header")
 
-        for k, v in generation_kwargs.items():
+        for k, v in generation_kwargs_.items():
             g_header.create_dataset(k, data=v)
 
         for group_name, dset_size in zip(
@@ -163,9 +118,40 @@ def make_dataset(n_training,
             print(f"Creating dataset '{group_name}' @ {dset_size} images")
             group = hf.create_group(group_name)
 
-            (images, masks, position, attitude, date, sol_incidence) = generate(dset_size, **generation_kwargs)
+            (images, masks, position, attitude, date, sol_incidence) = generate(dset_size, **generation_kwargs_)
             for ds, name in zip(
                     (images, masks, position, attitude, date, sol_incidence),
                     ("images", "masks", "position", "attitude", "date", "sol_incidence")
             ):
                 group.create_dataset(name, data=ds)
+
+
+def inspect_dataset(dataset_path, n_inspect=25, pixel_range=(0, 1)):
+    with h5py.File(dataset_path) as hf:
+        images = hf['training/images'][:]
+        masks = hf['training/masks'][:]
+        header = hf["header"]
+        print("Generation settings:")
+        for k, v in header.items():
+            print(f"\t{k}: {v[()]}")
+    idx = np.random.choice(np.arange(len(images)), n_inspect)
+
+    images = images[idx]
+    masks = masks[idx]
+
+    fig, axes = plt.subplots(n_inspect, 3, figsize=(15, 5 * n_inspect))
+    n_bins = 256
+
+    for i in range(n_inspect):
+        axes[i, 0].imshow(images[i, 0], cmap='gray')
+
+        weights = np.ones_like(images[i, 0].flatten()) / float(len(images[i, 0].flatten()))
+        axes[i, 1].hist(images[i, 0].flatten(), n_bins, pixel_range, color='r', weights=weights)
+        axes[i, 1].set_xlim(pixel_range)
+        axes[i, 1].set_ylabel('Probability')
+        axes[i, 1].set_xlabel('Pixel value')
+
+        axes[i, 2].imshow(masks[i][0] * 10, cmap='Blues')
+
+    plt.tight_layout()
+    plt.show()

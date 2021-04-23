@@ -173,28 +173,16 @@ def generate_mask(A_craters,
     if filled:
         thickness = -1
 
-    if instancing:
-        for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj)):
-            if a >= 1 and b >= 1:
-                mask = cv2.ellipse(mask,
-                                   (x, y),
-                                   (a, b),
-                                   psi,
-                                   0,
-                                   360,
-                                   i,
-                                   thickness)
-    else:
-        for a, b, x, y, psi in zip(a_proj, b_proj, *r_pix_proj.T, psi_proj):
-            if a >= 1 and b >= 1:
-                mask = cv2.ellipse(mask,
-                                   (x, y),
-                                   (a, b),
-                                   psi,
-                                   0,
-                                   360,
-                                   1,
-                                   thickness)
+    for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj)):
+        if a >= 1 and b >= 1:
+            mask = cv2.ellipse(mask,
+                               (x, y),
+                               (a, b),
+                               psi,
+                               0,
+                               360,
+                               i if instancing else 1,
+                               thickness)
 
     return mask
 
@@ -298,9 +286,7 @@ class ConicProjector(Camera):
                       A_craters=None,
                       C_craters=None,
                       r_craters=None,
-                      filled=False,
-                      instancing=True,
-                      thickness=1
+                      **kwargs
                       ):
 
         if A_craters is None:
@@ -310,12 +296,22 @@ class ConicProjector(Camera):
 
             A_craters = self.project_crater_conics(C_craters, r_craters)
 
-        return generate_mask(A_craters=A_craters,
-                             resolution=self.resolution,
-                             filled=filled,
-                             instancing=instancing,
-                             thickness=thickness
-                             )
+        return generate_mask(A_craters=A_craters, resolution=self.resolution, **kwargs)
+
+    def plot(self,
+             A_craters=None,
+             C_craters=None,
+             r_craters=None,
+             **kwargs
+             ):
+        if A_craters is None:
+            if C_craters is None or r_craters is None:
+                raise ValueError("Must provide either crater data in respective ENU-frame (C_craters & r_craters) "
+                                 "or in image-frame (A_craters)!")
+
+            A_craters = self.project_crater_conics(C_craters, r_craters)
+
+        plot_conics(A_craters=A_craters, resolution=self.resolution, **kwargs)
 
 
 class MaskGenerator(ConicProjector):
@@ -328,7 +324,6 @@ class MaskGenerator(ConicProjector):
                  mask_thickness=1,
                  **kwargs
                  ):
-
         super(MaskGenerator, self).__init__(**kwargs)
 
         self.axis_threshold = axis_threshold
@@ -371,13 +366,13 @@ class MaskGenerator(ConicProjector):
                    position=position
                    )
 
-    def __visible(self):
+    def _visible(self):
         return (cdist(self.r_craters_catalogue.squeeze(), self.position.T) <=
                 np.sqrt(2 * self.height * self._orbiting_body_radius + self.height ** 2)).ravel()
 
-    def generate_mask(self, *args, **kwargs):
-        r_craters = self.r_craters_catalogue[self.__visible()]
-        C_craters = self.C_craters_catalogue[self.__visible()]
+    def craters_in_image(self):
+        r_craters = self.r_craters_catalogue[self._visible()]
+        C_craters = self.C_craters_catalogue[self._visible()]
 
         r_craters_img = self.project_crater_centers(r_craters)
         in_image = np.logical_and.reduce(np.logical_and(r_craters_img > -50, r_craters_img < self.resolution[0] + 50),
@@ -392,9 +387,15 @@ class MaskGenerator(ConicProjector):
         axis_filter = np.logical_and(a_proj >= self.axis_threshold[0], b_proj >= self.axis_threshold[0])
         axis_filter = np.logical_and(axis_filter,
                                      np.logical_and(a_proj <= self.axis_threshold[1], b_proj <= self.axis_threshold[1]))
-        A_craters = A_craters[axis_filter]
 
-        return super(MaskGenerator, self).generate_mask(A_craters=A_craters,
+        return A_craters[axis_filter]
+
+    def generate_mask(self, *args, **kwargs):
+
+        return super(MaskGenerator, self).generate_mask(A_craters=self.craters_in_image(),
                                                         filled=self.filled,
                                                         instancing=self.instancing,
                                                         thickness=self.mask_thickness)
+
+    def plot(self, *args, **kwargs):
+        super(MaskGenerator, self).plot(A_craters=self.craters_in_image(), *args, **kwargs)

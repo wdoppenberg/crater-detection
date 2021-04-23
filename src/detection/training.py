@@ -1,11 +1,9 @@
 import math
 import os
 import time
-from random import choice
 from statistics import mean
 from typing import Tuple, Dict, Iterable
 
-import cv2
 import h5py
 import mlflow
 import numpy as np
@@ -18,33 +16,17 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
-from .pre_processing import calculate_cdf, match_histograms
 from .visualisation import draw_patches
 
 
 class CraterDataset(Dataset):
     def __init__(self,
                  file_path,
-                 group,
-                 transforms=None,
-                 histogram_matching=False,
-                 gaussian_blur=False,
-                 clahe=False
+                 group
                  ):
         self.file_path = file_path
         self.group = group
         self.dataset = None
-        self.gaussian_blur = gaussian_blur
-        self.clahe = clahe
-
-        if histogram_matching:
-            with h5py.File(self.file_path, 'r') as hf:
-                images = hf['training/images'][:]
-                images = (images / np.max(images, axis=(-2, -1))[..., None, None])
-                ref_hist, _ = np.histogram(images.flatten(), 256, [0, 256])
-                self.ref_cdf = calculate_cdf(ref_hist)
-        else:
-            self.ref_cdf = None
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.dataset is None:
@@ -52,18 +34,6 @@ class CraterDataset(Dataset):
 
         images = self.dataset[self.group]["images"][idx]
         masks = self.dataset[self.group]["masks"][idx]
-
-        if self.gaussian_blur or self.ref_cdf is not None or self.clahe:
-            clahe = cv2.createCLAHE(tileGridSize=(8, 8))
-            for i in range(len(images)):
-                if self.ref_cdf is not None:
-                    images[i] = match_histograms(images[i], ref_cdf=self.ref_cdf)
-
-                if self.gaussian_blur:
-                    images[i] = cv2.GaussianBlur(images[i], (3, 3), 1)
-
-                if self.clahe:
-                    images[i] = clahe.apply(images[i].astype(np.uint8))
 
         images = torch.as_tensor(images)
         masks = torch.as_tensor(masks, dtype=torch.float32)
@@ -90,7 +60,7 @@ def collate_fn(batch: Iterable):
 
 class CraterInstanceDataset(CraterDataset):
     def __init__(self, min_area=4, *args, **kwargs):
-        super(CraterInstanceDataset, self).__init__(*args, **kwargs)
+        super(CraterInstanceDataset, self).__init__(**kwargs)
         self.min_area = min_area
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
@@ -138,28 +108,6 @@ class CraterInstanceDataset(CraterDataset):
     @staticmethod
     def collate_fn(batch: Iterable):
         return collate_fn(batch)
-
-
-def get_trial(model, lr_list, momentum_list, loss_function_list, optimizer_list):
-    lr = choice(lr_list)
-    momentum = choice(momentum_list)
-
-    loss_function = choice(loss_function_list)
-    lf_params = {}
-    # if loss_function == BCEDiceLoss:
-    #     lambda_dice = choice(lambda_dice_list)
-    #     lambda_bce = choice(lambda_bce_list)
-    #     eps = choice(eps_list)
-    #     lf_params = dict(lambda_dice=lambda_dice, lambda_bce=lambda_bce, eps=eps)
-    loss_function = loss_function(**lf_params)
-
-    optimizer = choice(optimizer_list)
-    opt_params = dict(lr=lr)
-    if optimizer == SGD:
-        opt_params['momentum'] = momentum
-    optimizer = optimizer(model.parameters(), **opt_params)
-
-    return loss_function, lf_params, optimizer, opt_params
 
 
 def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 4) -> \
@@ -391,7 +339,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
             print(
                 f"\nSummary:\n",
-                f"\tEpoch: {e}/{num_epochs + start_e}\n",
+                f"\tEpoch: {e}/{num_epochs + start_e - 1}\n",
                 f"\tAverage train loss: {mean(run_metrics['train']['loss_total'][(e - 1) * len(train_loader):e * len(train_loader)])}\n",
                 f"\tAverage validation loss: {mean(run_metrics['valid']['loss_total'][(e - 1) * len(validation_loader):e * len(validation_loader)])}\n",
                 f"\tDuration: {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s"

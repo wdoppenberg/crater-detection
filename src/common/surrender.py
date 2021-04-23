@@ -91,12 +91,12 @@ class SurRenderer(Camera):
 
         self.scene_time = scene_time
         setup_spice()
-        self._setup_backend(DEM_filename=DEM_filename, texture_filename=texture_filename)
+        self.__setup_backend(DEM_filename=DEM_filename, texture_filename=texture_filename)
         self.__sync_backend()
 
-    def _setup_backend(self,
-                       DEM_filename="FullMoon.dem",
-                       texture_filename="lroc_color_poles.tiff"):
+    def __setup_backend(self,
+                        DEM_filename="FullMoon.dem",
+                        texture_filename="lroc_color_poles.tiff"):
         self.backend = setup_renderer(fov=self.fov, resolution=self.resolution)
 
         self.backend.createBRDF('sun', 'sun.brdf', {})
