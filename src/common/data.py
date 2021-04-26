@@ -82,7 +82,7 @@ def demo_settings(n_demo=20,
     for i in range(n_demo):
         axes[i, 0].imshow(images[i, 0], cmap='Greys_r')
         axes[i, 1].imshow(mask[i, 0], cmap='gray')
-
+    plt.tight_layout()
     plt.show()
 
 
@@ -126,12 +126,12 @@ def make_dataset(n_training,
                 group.create_dataset(name, data=ds)
 
 
-def inspect_dataset(dataset_path, n_inspect=25, pixel_range=(0, 1)):
+def inspect_dataset(dataset_path, n_inspect=25, pixel_range=(0, 1), return_fig=False):
     with h5py.File(dataset_path) as hf:
         images = hf['training/images'][:]
         masks = hf['training/masks'][:]
         header = hf["header"]
-        print("Generation settings:")
+        print("Dataset header:")
         for k, v in header.items():
             print(f"\t{k}: {v[()]}")
     idx = np.random.choice(np.arange(len(images)), n_inspect)
@@ -154,4 +154,8 @@ def inspect_dataset(dataset_path, n_inspect=25, pixel_range=(0, 1)):
         axes[i, 2].imshow(masks[i][0] * 10, cmap='Blues')
 
     plt.tight_layout()
-    plt.show()
+
+    if return_fig:
+        return fig
+    else:
+        plt.show()

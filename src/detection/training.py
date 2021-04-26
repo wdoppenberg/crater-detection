@@ -16,7 +16,8 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
-from .visualisation import draw_patches
+from src.common.data import inspect_dataset
+from src.detection.visualisation import draw_patches
 
 
 class CraterDataset(Dataset):
@@ -152,14 +153,16 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if scheduler is None:
+            scheduler = StepLR(optimizer, step_size=10)
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     else:
         checkpoint = dict()
         model.to(device)
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
-
-    if scheduler is None:
-        scheduler = StepLR(optimizer, step_size=10)
+        if scheduler is None:
+            scheduler = StepLR(optimizer, step_size=10)
 
     tracked_params = ('momentum', 'weight_decay', 'dampening')
 
@@ -207,6 +210,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     mlflow.log_param(tp, optimizer.state_dict()['param_groups'][0][tp])
                 except KeyError as err:
                     pass
+            mlflow.log_figure(inspect_dataset(dataset_path, return_fig=True), f"dataset_inspection.png")
 
         for e in range(start_e, num_epochs + start_e):
             print(f'\n-----Epoch {e} started-----\n')
@@ -304,16 +308,11 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 'run_id': run_id,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'run_metrics': run_metrics
             }
 
             mlflow.pytorch.log_state_dict(state_dict, artifact_path="checkpoint")
-
-            checkpoint_path = f"blobs/CraterRCNN_{run_id}.pth"
-            # torch.save(
-            #     state_dict,
-            #     checkpoint_path
-            # )
 
             model.eval()
             with torch.no_grad():

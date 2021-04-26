@@ -11,7 +11,7 @@ from numpy import linalg as LA
 from scipy.spatial.distance import cdist
 
 import src.common.constants as const
-from common.robbins import load_craters, extract_robbins_dataset
+from src.common.robbins import load_craters, extract_robbins_dataset
 from src.common.camera import camera_matrix, projection_matrix, Camera
 from src.common.coordinates import ENU_system
 
