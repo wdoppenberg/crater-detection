@@ -21,15 +21,6 @@ class DataGenerator(MaskGenerator, SurRenderer):
 
 
 def generate(size, **kwargs):
-    images_dataset = np.empty((size, 1, *kwargs["resolution"]), np.float32)
-    if kwargs["instancing"]:
-        masks_dataset = np.empty((size, 1, *kwargs["resolution"]), np.int16)
-    else:
-        masks_dataset = np.empty((size, 1, *kwargs["resolution"]), np.bool_)
-    position_dataset = np.empty((size, 3, 1), np.float64)
-    attitude_dataset = np.empty((size, 3, 3), np.float64)
-    sol_incidence_dataset = np.empty((size, 1), np.float16)
-    date_dataset = np.empty((size, 3), int)
 
     generator = DataGenerator.from_robbins_dataset(
         diamlims=kwargs["diamlims"],
@@ -42,6 +33,16 @@ def generate(size, **kwargs):
         mask_thickness=kwargs["mask_thickness"],
         instancing=kwargs["instancing"]
     )
+
+    date_dataset = np.empty((size, 3), int)
+    images_dataset = np.empty((size, 1, *generator.resolution), np.float32)
+    if kwargs["instancing"]:
+        masks_dataset = np.empty((size, 1, *generator.resolution), np.int16)
+    else:
+        masks_dataset = np.empty((size, 1, *generator.resolution), np.bool_)
+    position_dataset = np.empty((size, 3, 1), np.float64)
+    attitude_dataset = np.empty((size, 3, 3), np.float64)
+    sol_incidence_dataset = np.empty((size, 1), np.float16)
 
     for i in tq(range(size), desc="Creating dataset"):
         date = dt.date(2021, np.random.randint(1, 12), 1)
@@ -126,36 +127,46 @@ def make_dataset(n_training,
                 group.create_dataset(name, data=ds)
 
 
-def inspect_dataset(dataset_path, n_inspect=25, pixel_range=(0, 1), return_fig=False):
+def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_range=(0, 1), return_fig=False):
     with h5py.File(dataset_path) as hf:
         images = hf['training/images'][:]
         masks = hf['training/masks'][:]
         header = hf["header"]
-        print("Dataset header:")
+        header_dict = dict()
         for k, v in header.items():
-            print(f"\t{k}: {v[()]}")
-    idx = np.random.choice(np.arange(len(images)), n_inspect)
+            header_dict[k] = v[()]
 
-    images = images[idx]
-    masks = masks[idx]
+        if summary:
+            print("Dataset header:")
+            for k, v in header_dict.items():
+                print(f"\t{k}: {v}")
 
-    fig, axes = plt.subplots(n_inspect, 3, figsize=(15, 5 * n_inspect))
-    n_bins = 256
+    if plot:
+        idx = np.random.choice(np.arange(len(images)), n_inspect)
 
-    for i in range(n_inspect):
-        axes[i, 0].imshow(images[i, 0], cmap='gray')
+        images = images[idx]
+        masks = masks[idx]
 
-        weights = np.ones_like(images[i, 0].flatten()) / float(len(images[i, 0].flatten()))
-        axes[i, 1].hist(images[i, 0].flatten(), n_bins, pixel_range, color='r', weights=weights)
-        axes[i, 1].set_xlim(pixel_range)
-        axes[i, 1].set_ylabel('Probability')
-        axes[i, 1].set_xlabel('Pixel value')
+        fig, axes = plt.subplots(n_inspect, 3, figsize=(15, 5 * n_inspect))
+        n_bins = 256
 
-        axes[i, 2].imshow(masks[i][0] * 10, cmap='Blues')
+        for i in range(n_inspect):
+            axes[i, 0].imshow(images[i, 0], cmap='gray')
 
-    plt.tight_layout()
+            weights = np.ones_like(images[i, 0].flatten()) / float(len(images[i, 0].flatten()))
+            axes[i, 1].hist(images[i, 0].flatten(), n_bins, pixel_range, color='r', weights=weights)
+            axes[i, 1].set_xlim(pixel_range)
+            axes[i, 1].set_ylabel('Probability')
+            axes[i, 1].set_xlabel('Pixel value')
 
-    if return_fig:
-        return fig
+            axes[i, 2].imshow(masks[i][0] * 10, cmap='Blues')
+
+        plt.tight_layout()
+
+        if return_fig:
+            return fig
+        else:
+            plt.show()
     else:
-        plt.show()
+        return header_dict
+

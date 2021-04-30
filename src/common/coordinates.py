@@ -302,4 +302,3 @@ class OrbitingBodyBase:
 
     def suborbital_position(self):
         return suborbital_coords(self.r, self._orbiting_body_radius)
-

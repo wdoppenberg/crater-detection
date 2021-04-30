@@ -210,7 +210,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     mlflow.log_param(tp, optimizer.state_dict()['param_groups'][0][tp])
                 except KeyError as err:
                     pass
-            mlflow.log_figure(inspect_dataset(dataset_path, return_fig=True), f"dataset_inspection.png")
+            mlflow.log_figure(inspect_dataset(dataset_path, return_fig=True, summary=False), f"dataset_inspection.png")
 
         for e in range(start_e, num_epochs + start_e):
             print(f'\n-----Epoch {e} started-----\n')

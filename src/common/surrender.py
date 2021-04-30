@@ -152,7 +152,7 @@ class SurRenderer(Camera):
 
     @property
     def solar_incidence_angle(self):
-        return get_sol_incidence(self.scene_time, suborbital_coords(self.position).squeeze())
+        return get_sol_incidence(self.scene_time, self.suborbital_position().squeeze())
 
     def generate_image(self, stretch=True) -> np.ndarray:
         self.__sync_backend()

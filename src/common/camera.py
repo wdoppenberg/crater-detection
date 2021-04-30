@@ -32,15 +32,14 @@ def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alph
     """
 
     if isinstance(resolution, Iterable):
-        x_0, y_0 = map(lambda x: x / 2, resolution)
+        x_0, y_0 = map(lambda num: num / 2, resolution)
     else:
-        x_0 = resolution / 2
-        y_0 = resolution / 2
+        x_0 = y_0 = resolution / 2
 
     if isinstance(fov, Iterable):
-        f_x, f_y = map(lambda x, fov_: x / np.tan(np.radians(fov_ / 2)), (x_0, y_0), fov)
+        f_x, f_y = map(lambda num, fov_: num / np.tan(np.radians(fov_ / 2)), (x_0, y_0), fov)
     else:
-        f_x, f_y = map(lambda x: x / np.tan(np.radians(fov / 2)), (x_0, y_0))
+        f_x, f_y = map(lambda num: num / np.tan(np.radians(fov / 2)), (x_0, y_0))
 
     return np.array([[f_x, alpha, x_0],
                      [0, f_y, y_0],
@@ -50,7 +49,7 @@ def camera_matrix(fov=const.CAMERA_FOV, resolution=const.CAMERA_RESOLUTION, alph
 def projection_matrix(K, T_CM, r_M):
     """Return Projection matrix [1] according to:
 
-    .. math:: ^x\mathbf{P}_C = \mathbf{K} [ ^x\mathbf{T^C_M}_C & -r_C]
+    .. math:: \mathbf{P}_C = \mathbf{K} [ \mathbf{T^C_M} & -r_C]
 
     Parameters
     ----------

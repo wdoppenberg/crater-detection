@@ -3,7 +3,7 @@ from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 
-def create_detection_model(backbone_name='resnet18'):
+def create_detection_model(backbone_name='resnet18', image_size=256):
     backbone = resnet_fpn_backbone(backbone_name, pretrained=True, trainable_layers=5)
 
     # Input image is grayscale -> in_channels = 1 instead of 3 (COCO)
@@ -12,8 +12,8 @@ def create_detection_model(backbone_name='resnet18'):
     model = MaskRCNN(
         backbone=backbone,
         num_classes=2,
-        min_size=256,
-        max_size=256,
+        min_size=image_size,
+        max_size=image_size,
         image_mean=[0.156],
         image_std=[0.272]
     )
