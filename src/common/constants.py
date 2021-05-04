@@ -23,6 +23,7 @@ FILLED = True
 INSTANCING = True
 RANDOMIZED_ORIENTATION = True
 MASK_THICKNESS = 1
+SAVE_CRATERS = True
 
 GENERATION_KWARGS = dict(
     axis_threshold=AXIS_THRESHOLD,
@@ -36,7 +37,8 @@ GENERATION_KWARGS = dict(
     diamlims=DIAMLIMS,
     instancing=INSTANCING,
     randomized_orientation=RANDOMIZED_ORIENTATION,
-    mask_thickness=MASK_THICKNESS
+    mask_thickness=MASK_THICKNESS,
+    save_craters=SAVE_CRATERS
 )
 
 

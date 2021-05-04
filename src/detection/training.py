@@ -9,6 +9,7 @@ import mlflow
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from scipy.spatial.distance import cdist
 from torch import nn
 from torch.cuda.amp import autocast
 from torch.optim import SGD
@@ -16,6 +17,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
+from common.conics import conic_center, ellipse_angle, ellipse_axes
 from src.common.data import inspect_dataset
 from src.detection.visualisation import draw_patches
 
@@ -33,13 +35,13 @@ class CraterDataset(Dataset):
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, 'r')
 
-        images = self.dataset[self.group]["images"][idx]
+        image = self.dataset[self.group]["images"][idx]
         masks = self.dataset[self.group]["masks"][idx]
 
-        images = torch.as_tensor(images)
+        image = torch.as_tensor(image)
         masks = torch.as_tensor(masks, dtype=torch.float32)
 
-        return images, masks
+        return image, masks
 
     def random(self):
         return self.__getitem__(
@@ -59,13 +61,13 @@ def collate_fn(batch: Iterable):
     return tuple(zip(*batch))
 
 
-class CraterInstanceDataset(CraterDataset):
+class CraterMaskDataset(CraterDataset):
     def __init__(self, min_area=4, *args, **kwargs):
-        super(CraterInstanceDataset, self).__init__(**kwargs)
+        super(CraterMaskDataset, self).__init__(**kwargs)
         self.min_area = min_area
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
-        images, mask = super(CraterInstanceDataset, self).__getitem__(idx)
+        image, mask = super(CraterMaskDataset, self).__getitem__(idx)
         mask: torch.Tensor = mask.int()
 
         obj_ids = mask.unique()[1:]
@@ -104,24 +106,73 @@ class CraterInstanceDataset(CraterDataset):
             iscrowd=iscrowd
         )
 
-        return images, target
+        return image, target
 
     @staticmethod
     def collate_fn(batch: Iterable):
         return collate_fn(batch)
 
 
+class CraterEllipseDataset(CraterMaskDataset):
+    def __init__(self, *args, **kwargs):
+        super(CraterEllipseDataset, self).__init__(*args, min_area=0, **kwargs)
+
+    def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
+        image, target = super(CraterEllipseDataset, self).__getitem__(idx)
+
+        if self.dataset is None:
+            self.dataset = h5py.File(self.file_path, 'r')
+
+        start_idx = self.dataset[self.group]["craters/crater_list_idx"][idx]
+        end_idx = self.dataset[self.group]["craters/crater_list_idx"][idx + 1]
+
+        A_craters = self.dataset[self.group]["craters/A_craters"][start_idx:end_idx]
+
+        boxes = target["boxes"]
+
+        x_box = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
+        y_box = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
+
+        x, y = conic_center(A_craters).T
+        a, b = ellipse_axes(A_craters)
+        angle = ellipse_angle(A_craters)
+
+        # TODO: VERIFY
+        matched_ids = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
+        x, y, a, b, angle = map(lambda arr: arr[matched_ids], (x, y, a, b, angle))
+
+        Q_proposals = torch.zeros((len(boxes), 3))
+
+        Q_proposals[:, 0] = x_box
+        Q_proposals[:, 1] = y_box
+        Q_proposals[:, 2] = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
+
+        E_proposals = torch.as_tensor(np.vstack((x, y, a, b, angle)).T)
+
+        d_x = (E_proposals[:, 0] - Q_proposals[:, 0]) / Q_proposals[:, 2]
+        d_y = (E_proposals[:, 1] - Q_proposals[:, 1]) / Q_proposals[:, 2]
+        d_a = torch.log(2 * E_proposals[:, 2] / Q_proposals[:, 2])
+        d_b = torch.log(2 * E_proposals[:, 3] / Q_proposals[:, 2])
+        d_angle = E_proposals[:, 4] / np.pi
+
+        ellipse_offsets = torch.vstack((d_x, d_y, d_a, d_b, d_angle)).T
+
+        target['ellipse_offsets'] = ellipse_offsets
+
+        return image, target
+
+
 def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 4) -> \
         Tuple[DataLoader, DataLoader, DataLoader]:
-    train_dataset = CraterInstanceDataset(file_path=dataset_path, group="training")
+    train_dataset = CraterMaskDataset(file_path=dataset_path, group="training")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn,
                               shuffle=True)
 
-    validation_dataset = CraterInstanceDataset(file_path=dataset_path, group="validation")
+    validation_dataset = CraterMaskDataset(file_path=dataset_path, group="validation")
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size, num_workers=0,
                                    collate_fn=collate_fn)
 
-    test_dataset = CraterInstanceDataset(file_path=dataset_path, group="test")
+    test_dataset = CraterMaskDataset(file_path=dataset_path, group="test")
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=0, collate_fn=collate_fn,
                              shuffle=True)
 

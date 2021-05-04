@@ -14,14 +14,13 @@ from src.common.surrender import SurRenderer
 
 class DataGenerator(MaskGenerator, SurRenderer):
     def __init__(self, *args, **kwargs):
-        super(DataGenerator, self).__init__(*args, **kwargs)
+        super(DataGenerator, self).__init__(**kwargs)
 
-    def image_mask_pair(self):
-        return self.generate_image(), self.generate_mask()
+    def image_mask_pair(self, **mask_kwargs):
+        return self.generate_image(), self.generate_mask(**mask_kwargs)
 
 
 def generate(size, **kwargs):
-
     generator = DataGenerator.from_robbins_dataset(
         diamlims=kwargs["diamlims"],
         ellipse_limit=kwargs["ellipse_limit"],
@@ -44,8 +43,11 @@ def generate(size, **kwargs):
     attitude_dataset = np.empty((size, 3, 3), np.float64)
     sol_incidence_dataset = np.empty((size, 1), np.float16)
 
+    A_craters = []
+
     for i in tq(range(size), desc="Creating dataset"):
         date = dt.date(2021, np.random.randint(1, 12), 1)
+        generator.set_random_position()
         generator.scene_time = date
         date_dataset[i] = np.array((date.year, date.month, date.day))
 
@@ -69,7 +71,10 @@ def generate(size, **kwargs):
         masks_dataset[i] = mask[None, None, ...]
         images_dataset[i] = image[None, None, ...]
 
-    return images_dataset, masks_dataset, position_dataset, attitude_dataset, date_dataset, sol_incidence_dataset
+        if kwargs["save_craters"]:
+            A_craters.append(generator.craters_in_image())
+
+    return images_dataset, masks_dataset, position_dataset, attitude_dataset, date_dataset, sol_incidence_dataset, A_craters
 
 
 def demo_settings(n_demo=20,
@@ -77,7 +82,7 @@ def demo_settings(n_demo=20,
     generation_kwargs_ = const.GENERATION_KWARGS
     if generation_kwargs is not None:
         generation_kwargs_.update(generation_kwargs)
-    images, mask, _, _, _, _ = generate(n_demo, **generation_kwargs_)
+    images, mask, _, _, _, _, _ = generate(n_demo, **generation_kwargs_)
 
     fig, axes = plt.subplots(n_demo, 2, figsize=(10, 5 * n_demo))
     for i in range(n_demo):
@@ -115,16 +120,25 @@ def make_dataset(n_training,
         for group_name, dset_size in zip(
                 ("training", "validation", "test"),
                 (n_training, n_validation, n_testing)
-        ):
+            ):
             print(f"Creating dataset '{group_name}' @ {dset_size} images")
             group = hf.create_group(group_name)
 
-            (images, masks, position, attitude, date, sol_incidence) = generate(dset_size, **generation_kwargs_)
+            (images, masks, position, attitude, date, sol_incidence, A_craters) = generate(dset_size,
+                                                                                           **generation_kwargs_)
             for ds, name in zip(
                     (images, masks, position, attitude, date, sol_incidence),
                     ("images", "masks", "position", "attitude", "date", "sol_incidence")
-            ):
+                ):
                 group.create_dataset(name, data=ds)
+
+            lengths = np.array([len(cs) for cs in A_craters])
+            crater_list_idx = np.insert(lengths.cumsum(), 0, 0)
+            A_craters = np.concatenate(A_craters)
+
+            cg = group.create_group("craters")
+            cg.create_dataset("crater_list_idx", data=crater_list_idx)
+            cg.create_dataset("A_craters", data=A_craters)
 
 
 def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_range=(0, 1), return_fig=False):
@@ -169,4 +183,3 @@ def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_r
             plt.show()
     else:
         return header_dict
-

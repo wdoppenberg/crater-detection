@@ -11,9 +11,9 @@ from numpy import linalg as LA
 from scipy.spatial.distance import cdist
 
 import src.common.constants as const
-from src.common.robbins import load_craters, extract_robbins_dataset
 from src.common.camera import camera_matrix, projection_matrix, Camera
 from src.common.coordinates import ENU_system
+from src.common.robbins import load_craters, extract_robbins_dataset
 
 
 def matrix_adjugate(matrix):
@@ -173,16 +173,15 @@ def generate_mask(A_craters,
     if filled:
         thickness = -1
 
-    for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj)):
-        if a >= 1 and b >= 1:
-            mask = cv2.ellipse(mask,
-                               (x, y),
-                               (a, b),
-                               psi,
-                               0,
-                               360,
-                               i if instancing else 1,
-                               thickness)
+    for i, (a, b, x, y, psi) in enumerate(zip(a_proj, b_proj, *r_pix_proj.T, psi_proj), 1):
+        mask = cv2.ellipse(mask,
+                           (x, y),
+                           (a, b),
+                           psi,
+                           0,
+                           360,
+                           i if instancing else 1,
+                           thickness)
 
     return mask
 
@@ -322,10 +321,12 @@ class MaskGenerator(ConicProjector):
                  filled=False,
                  instancing=True,
                  mask_thickness=1,
+                 mask_margin=-20,
                  **kwargs
                  ):
         super(MaskGenerator, self).__init__(**kwargs)
 
+        self.mask_margin = mask_margin
         self.axis_threshold = axis_threshold
         self.mask_thickness = mask_thickness
         self.instancing = instancing
@@ -370,13 +371,18 @@ class MaskGenerator(ConicProjector):
         return (cdist(self.r_craters_catalogue.squeeze(), self.position.T) <=
                 np.sqrt(2 * self.height * self._orbiting_body_radius + self.height ** 2)).ravel()
 
-    def craters_in_image(self):
+    def craters_in_image(self, margin=None):
         r_craters = self.r_craters_catalogue[self._visible()]
         C_craters = self.C_craters_catalogue[self._visible()]
 
         r_craters_img = self.project_crater_centers(r_craters)
-        in_image = np.logical_and.reduce(np.logical_and(r_craters_img > -50, r_craters_img < self.resolution[0] + 50),
-                                         axis=1)
+
+        if margin is None:
+            margin = self.mask_margin
+
+        in_image = np.logical_and.reduce(
+            np.logical_and(r_craters_img > -margin, r_craters_img < self.resolution[0] + margin),
+            axis=1)
 
         r_craters = r_craters[in_image]
         C_craters = C_craters[in_image]
@@ -390,12 +396,16 @@ class MaskGenerator(ConicProjector):
 
         return A_craters[axis_filter]
 
-    def generate_mask(self, *args, **kwargs):
+    def generate_mask(self, **kwargs):
+        mask_args = dict(
+            filled=self.filled,
+            instancing=self.instancing,
+            thickness=self.mask_thickness
+        )
+        mask_args.update(kwargs)
 
         return super(MaskGenerator, self).generate_mask(A_craters=self.craters_in_image(),
-                                                        filled=self.filled,
-                                                        instancing=self.instancing,
-                                                        thickness=self.mask_thickness)
+                                                        **mask_args)
 
     def plot(self, *args, **kwargs):
         super(MaskGenerator, self).plot(A_craters=self.craters_in_image(), *args, **kwargs)
