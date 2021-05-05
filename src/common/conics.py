@@ -321,7 +321,7 @@ class MaskGenerator(ConicProjector):
                  filled=False,
                  instancing=True,
                  mask_thickness=1,
-                 mask_margin=-20,
+                 mask_margin=0,
                  **kwargs
                  ):
         super(MaskGenerator, self).__init__(**kwargs)

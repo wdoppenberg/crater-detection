@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
-from common.conics import conic_center, ellipse_angle, ellipse_axes
+from src.common.conics import conic_center, ellipse_angle, ellipse_axes
 from src.common.data import inspect_dataset
 from src.detection.visualisation import draw_patches
 
@@ -119,6 +119,7 @@ class CraterEllipseDataset(CraterMaskDataset):
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, target = super(CraterEllipseDataset, self).__getitem__(idx)
+        target.pop("masks")
 
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, 'r')
@@ -138,41 +139,45 @@ class CraterEllipseDataset(CraterMaskDataset):
         angle = ellipse_angle(A_craters)
 
         # TODO: VERIFY
-        matched_ids = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
-        x, y, a, b, angle = map(lambda arr: arr[matched_ids], (x, y, a, b, angle))
+        if len(x_box) > 0 and len(x) > 0:
+            matched_ids = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
+            x, y, a, b, angle = map(lambda arr: arr[matched_ids], (x, y, a, b, angle))
 
-        Q_proposals = torch.zeros((len(boxes), 3))
+            Q_proposals = torch.zeros((len(boxes), 3))
 
-        Q_proposals[:, 0] = x_box
-        Q_proposals[:, 1] = y_box
-        Q_proposals[:, 2] = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
+            Q_proposals[:, 0] = x_box
+            Q_proposals[:, 1] = y_box
+            Q_proposals[:, 2] = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
 
-        E_proposals = torch.as_tensor(np.vstack((x, y, a, b, angle)).T)
+            E_proposals = torch.as_tensor(np.vstack((x, y, a, b, angle)).T)
 
-        d_x = (E_proposals[:, 0] - Q_proposals[:, 0]) / Q_proposals[:, 2]
-        d_y = (E_proposals[:, 1] - Q_proposals[:, 1]) / Q_proposals[:, 2]
-        d_a = torch.log(2 * E_proposals[:, 2] / Q_proposals[:, 2])
-        d_b = torch.log(2 * E_proposals[:, 3] / Q_proposals[:, 2])
-        d_angle = E_proposals[:, 4] / np.pi
+            # d_x = (E_proposals[:, 0] - Q_proposals[:, 0]) / Q_proposals[:, 2]
+            # d_y = (E_proposals[:, 1] - Q_proposals[:, 1]) / Q_proposals[:, 2]
+            d_a = torch.log(2 * E_proposals[:, 2] / Q_proposals[:, 2])
+            d_b = torch.log(2 * E_proposals[:, 3] / Q_proposals[:, 2])
+            d_angle = E_proposals[:, 4] / np.pi
 
-        ellipse_offsets = torch.vstack((d_x, d_y, d_a, d_b, d_angle)).T
+            # ellipse_offsets = torch.vstack((d_x, d_y, d_a, d_b, d_angle)).T
+            ellipse_offsets = torch.vstack((d_a, d_b, d_angle)).T
+        else:
+            ellipse_offsets = torch.zeros((0, 3))
 
-        target['ellipse_offsets'] = ellipse_offsets
+        target['ellipse_offsets'] = ellipse_offsets.type(torch.float32)
 
         return image, target
 
 
 def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 4) -> \
         Tuple[DataLoader, DataLoader, DataLoader]:
-    train_dataset = CraterMaskDataset(file_path=dataset_path, group="training")
+    train_dataset = CraterEllipseDataset(file_path=dataset_path, group="training")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn,
                               shuffle=True)
 
-    validation_dataset = CraterMaskDataset(file_path=dataset_path, group="validation")
+    validation_dataset = CraterEllipseDataset(file_path=dataset_path, group="validation")
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size, num_workers=0,
                                    collate_fn=collate_fn)
 
-    test_dataset = CraterMaskDataset(file_path=dataset_path, group="test")
+    test_dataset = CraterEllipseDataset(file_path=dataset_path, group="test")
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=0, collate_fn=collate_fn,
                              shuffle=True)
 
@@ -217,8 +222,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
     tracked_params = ('momentum', 'weight_decay', 'dampening')
 
-    name = "Mask RCNN"
-    name += " | Edge" if "edge" in dataset_path else " | Filled"
+    name = "Ellipse RCNN"
     name += " | Pretrained" if pretrained else " | Cold Start"
 
     run_args = dict(run_name=name)
@@ -234,7 +238,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_mask=list(),
+                loss_ellipse_offsets=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             ),
@@ -243,7 +247,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_mask=list(),
+                loss_ellipse_offsets=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             )
@@ -276,7 +280,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                          "loss_total": 0.,
                          "loss_classifier": 0.,
                          "loss_box_reg": 0.,
-                         "loss_mask": 0.,
+                         "loss_ellipse_offsets": 0.,
                          "loss_objectness": 0.,
                          "loss_rpn_box_reg": 0
                      })
@@ -313,7 +317,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                              "loss_total": 0.,
                              "loss_classifier": 0.,
                              "loss_box_reg": 0.,
-                             "loss_mask": 0.,
+                             "loss_ellipse_offsets": 0.,
                              "loss_objectness": 0.,
                              "loss_rpn_box_reg": 0
                          })
@@ -365,6 +369,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
             mlflow.pytorch.log_state_dict(state_dict, artifact_path="checkpoint")
 
+            """
             model.eval()
             with torch.no_grad():
                 images, targets = next(iter(test_loader))
@@ -386,6 +391,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
             draw_patches(images[0].cpu(), boxes, labels, scores, masks, min_score=min_score, ax=axes[3])
 
             mlflow.log_figure(fig, f"sample_output_e{e}.png")
+            """
 
             print(
                 f"\nSummary:\n",

@@ -13,8 +13,8 @@ from torchvision.models.detection.rpn import RPNHead, RegionProposalNetwork
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.ops import MultiScaleRoIAlign
 
-from common.conics import crater_representation
-from detection.ellipse import EllipseRoIHeads, EllipseRegressor
+from src.common.conics import crater_representation
+from src.detection.ellipse import EllipseRoIHeads, EllipseRegressor
 
 
 def create_detection_model(backbone_name='resnet18', image_size=256):

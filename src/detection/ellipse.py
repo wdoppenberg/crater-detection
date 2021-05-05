@@ -6,37 +6,43 @@ from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
 
 class EllipseRegressor(nn.Module):
-    def __init__(self, in_channels=1024, hidden_size=512):
+    def __init__(self, in_channels=1024, hidden_size=512, out_features=3):
         super().__init__()
 
         self.fc6 = nn.Linear(in_channels, hidden_size)
-        self.fc7 = nn.Linear(hidden_size, 5)
+        self.fc7 = nn.Linear(hidden_size, out_features)
 
     def forward(self, x):
         x = x.flatten(start_dim=1)
 
-        x = torch.relu(self.fc6(x))
-        x = torch.relu(self.fc7(x))
+        x = torch.sigmoid(self.fc6(x))
+        x = torch.sigmoid(self.fc7(x))
 
         return x
 
 
-def ellipsercnn_loss(ellipse_logits: torch.Tensor, gt_ellipse_offsets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor], loss_func=None) -> torch.Tensor:
-
+def ellipsercnn_loss(offset_pred: torch.Tensor, gt_ellipse_offsets: List[torch.Tensor],
+                     pos_matched_idxs: List[torch.Tensor]) -> torch.Tensor:
     offset_targets = torch.cat([o[idxs] for o, idxs in zip(gt_ellipse_offsets, pos_matched_idxs)], dim=0)
 
     if offset_targets.numel() == 0:
-        return ellipse_logits.sum() * 0
+        return offset_pred.sum() * 0
 
-    if loss_func is None:
-        loss_func = nn.SmoothL1Loss()
+    sigma_a_t = offset_targets[:, 0]
+    sigma_b_t = offset_targets[:, 1]
 
-    mask_loss = loss_func(
-        ellipse_logits, offset_targets
-    )
+    sigma_a_p = offset_pred[:, 0]
+    sigma_b_p = offset_pred[:, 1]
 
-    return mask_loss
+    d_angle = offset_pred[:, 2] - offset_targets[:, 2]
+    loss = torch.square(torch.cos(d_angle) * (sigma_a_t / sigma_a_p)) + \
+           torch.square(torch.cos(d_angle) * (sigma_b_t / sigma_b_p)) + \
+           torch.square(torch.sin(d_angle) * (sigma_a_t / sigma_b_p)) + \
+           torch.square(torch.sin(d_angle) * (sigma_b_t / sigma_a_p)) + \
+           torch.log((sigma_a_p/sigma_a_t)**2) + \
+           torch.log((sigma_b_p/sigma_b_t)**2)
+
+    return loss.mean()
 
 
 class EllipseRoIHeads(RoIHeads):
@@ -71,6 +77,7 @@ class EllipseRoIHeads(RoIHeads):
             for t in targets:
                 floating_point_types = (torch.float, torch.double, torch.half)
                 assert t["boxes"].dtype in floating_point_types, 'target boxes must of float type'
+                assert t["ellipse_offsets"].dtype in floating_point_types, 'target ellipse_offsets must of float type'
                 assert t["labels"].dtype == torch.int64, 'target labels must of int64 type'
 
         if self.training:

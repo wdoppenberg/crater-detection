@@ -1,5 +1,6 @@
 import argparse
 
+from src.detection.model import CraterDetector
 from src.common.data import inspect_dataset
 from src.detection import create_detection_model, train_model
 
@@ -19,7 +20,7 @@ def get_parser():
                         help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
-    parser.add_argument('--dataset', type=str, default="data/dataset_9f4bd6b6-76d1-4aea-8854-cb50f15110bb.h5",
+    parser.add_argument('--dataset', type=str, default="data/dataset_ellipse_offsets_v1.h5",
                         help='Dataset path')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='Momentum input for SGD optimizer.')
@@ -37,7 +38,7 @@ if __name__ == "__main__":
 
     data_header = inspect_dataset(args.dataset, plot=False)
 
-    model = create_detection_model(args.backbone, image_size=data_header['resolution'])
+    model = CraterDetector(backbone_name=args.backbone)
 
     train_model(model,
                 num_epochs=args.epochs,
