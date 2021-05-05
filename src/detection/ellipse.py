@@ -1,11 +1,8 @@
 from typing import List, Dict, Optional, Tuple
 
 import torch
-import torchvision.models.detection._utils as det_utils
 from torch import nn
-from torchvision.models.detection.faster_rcnn import TwoMLPHead
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
-from torchvision.ops import boxes as box_ops, MultiScaleRoIAlign
 
 
 class EllipseRegressor(nn.Module):
@@ -24,48 +21,31 @@ class EllipseRegressor(nn.Module):
         return x
 
 
+def ellipsercnn_loss(ellipse_logits: torch.Tensor, gt_ellipse_offsets: List[torch.Tensor],
+                     pos_matched_idxs: List[torch.Tensor], loss_func=None) -> torch.Tensor:
+
+    offset_targets = torch.cat([o[idxs] for o, idxs in zip(gt_ellipse_offsets, pos_matched_idxs)], dim=0)
+
+    if offset_targets.numel() == 0:
+        return ellipse_logits.sum() * 0
+
+    if loss_func is None:
+        loss_func = nn.SmoothL1Loss()
+
+    mask_loss = loss_func(
+        ellipse_logits, offset_targets
+    )
+
+    return mask_loss
+
+
 class EllipseRoIHeads(RoIHeads):
-    def __init__(self,
-                 box_roi_pool,
-                 box_head,
-                 box_predictor,
-                 # Faster R-CNN training
-                 fg_iou_thresh, bg_iou_thresh,
-                 batch_size_per_image, positive_fraction,
-                 bbox_reg_weights,
-                 # Faster R-CNN inference
-                 score_thresh,
-                 nms_thresh,
-                 detections_per_img,
-                 # Ellipse
-                 ellipse_roi_pool=None,
-                 ellipse_head=None,
-                 ellipse_predictor=None
-                 ):
-        super(RoIHeads, self).__init__()
+    def __init__(self, box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
+                 positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img,
+                 ellipse_roi_pool, ellipse_head, ellipse_predictor):
 
-        self.box_similarity = box_ops.box_iou
-        # assign ground-truth boxes for each proposal
-        self.proposal_matcher = det_utils.Matcher(
-            fg_iou_thresh,
-            bg_iou_thresh,
-            allow_low_quality_matches=False)
-
-        self.fg_bg_sampler = det_utils.BalancedPositiveNegativeSampler(
-            batch_size_per_image,
-            positive_fraction)
-
-        if bbox_reg_weights is None:
-            bbox_reg_weights = (10., 10., 5., 5.)
-        self.box_coder = det_utils.BoxCoder(bbox_reg_weights)
-
-        self.box_roi_pool = box_roi_pool
-        self.box_head = box_head
-        self.box_predictor = box_predictor
-
-        self.score_thresh = score_thresh
-        self.nms_thresh = nms_thresh
-        self.detections_per_img = detections_per_img
+        super().__init__(box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
+                         positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img)
 
         self.ellipse_roi_pool = ellipse_roi_pool
         self.ellipse_head = ellipse_head
@@ -148,24 +128,24 @@ class EllipseRoIHeads(RoIHeads):
             else:
                 raise Exception("Expected ellipse_roi_pool to be not None")
 
-            loss_ellipse_reg = {}
+            loss_ellipse_offsets = {}
             if self.training:
                 assert targets is not None
                 assert pos_matched_idxs is not None
                 assert ellipse_logits is not None
 
-                gt_ellipses = [t["ellipse_reg"] for t in targets]
-                rcnn_loss_ellipse_reg = maskrcnn_loss(
-                    ellipse_logits, ellipse_proposals,
-                    gt_ellipse, gt_labels, pos_matched_idxs)
-                loss_ellipse_reg = {
-                    "loss_ellipse_reg": rcnn_loss_ellipse_reg
+                gt_ellipse_offsets = [t["ellipse_offsets"] for t in targets]
+                rcnn_loss_ellipse_reg = ellipsercnn_loss(
+                    ellipse_logits, gt_ellipse_offsets, pos_matched_idxs
+                )
+                loss_ellipse_offsets = {
+                    "loss_ellipse_offsets": rcnn_loss_ellipse_reg
                 }
             else:
-                labels = [r["labels"] for r in result]
-                for mask_prob, r in zip(masks_probs, result):
-                    r["ellipse_reg"] = mask_prob
+                ellipses_per_image = [l.shape[0] for l in labels]
+                for e_l, r in zip(ellipse_logits.split(ellipses_per_image, dim=0), result):
+                    r["ellipse_offsets"] = e_l
 
-            losses.update(loss_ellipse_reg)
+            losses.update(loss_ellipse_offsets)
 
         return result, losses
