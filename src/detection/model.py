@@ -14,7 +14,7 @@ from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.ops import MultiScaleRoIAlign
 
 from src.common.conics import crater_representation
-from src.detection.ellipse import EllipseRoIHeads, EllipseRegressor
+from src.detection.roi_heads import EllipseRoIHeads, EllipseRegressor
 
 
 def create_detection_model(backbone_name='resnet18', image_size=256):
@@ -168,6 +168,17 @@ class CraterDetector(GeneralizedRCNN):
         transform = GeneralizedRCNNTransform(min_size, max_size, image_mean, image_std)
 
         super().__init__(backbone, rpn, roi_heads, transform)
+
+    @torch.no_grad()
+    def get_conics(self, image: torch.Tensor, min_score=0.7):
+        if self.training:
+            raise RuntimeError("Only works when in eval mode.")
+
+        out = self(image)[0]
+        scores, A_craters_pred = out["scores"], out["ellipse_matrices"]
+        min_score = 0.5
+        return A_craters_pred[scores > min_score]
+
 
     def from_run_id(self, run_id):
         checkpoint = mlflow.pytorch.load_state_dict(f'runs:/{run_id}/artifacts/checkpoint')

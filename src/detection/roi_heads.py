@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
-from src.common.conics import ellipse_angle, ellipse_axes, crater_representation, conic_center, scale_det
+from src.common.conics import crater_representation, conic_center, scale_det
 
 
 class EllipseRegressor(nn.Module):
@@ -24,7 +24,7 @@ class EllipseRegressor(nn.Module):
         return x
 
 
-def postprocess_ellipses(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
+def postprocess_ellipse_logits(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
     box_diag = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
     cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
@@ -40,7 +40,7 @@ def postprocess_ellipses(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Te
     return a, b, theta, cx, cy
 
 
-def kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False):
+def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False):
     cov1, cov2 = map(lambda arr: arr[:, :2, :2], (A1, A2))
     m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
 
@@ -67,11 +67,11 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
     d_b = d_pred[:, 1]
     d_angle = d_pred[:, 2]
 
-    A_pred = crater_representation(*postprocess_ellipses(d_a, d_b, d_angle, boxes))
+    A_pred = crater_representation(*postprocess_ellipse_logits(d_a, d_b, d_angle, boxes))
 
     A_pred, A_target = map(scale_det, (A_pred, A_target))
 
-    return multiplier * kullback_leibler_divergence(A_pred, A_target, shape_only=True).mean()
+    return multiplier * mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True).mean()
 
 
 class EllipseRoIHeads(RoIHeads):
@@ -185,7 +185,7 @@ class EllipseRoIHeads(RoIHeads):
                     d_a = e_l[:, 0]
                     d_b = e_l[:, 1]
                     d_angle = e_l[:, 2]
-                    r["ellipse_matrices"] = crater_representation(*postprocess_ellipses(d_a, d_b, d_angle, box))
+                    r["ellipse_matrices"] = crater_representation(*postprocess_ellipse_logits(d_a, d_b, d_angle, box))
 
             losses.update(loss_ellipse_offsets)
 
