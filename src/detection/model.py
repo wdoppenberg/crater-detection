@@ -13,8 +13,8 @@ from torchvision.models.detection.rpn import RPNHead, RegionProposalNetwork
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.ops import MultiScaleRoIAlign
 
-from common.conics import crater_representation
-from detection.ellipse import EllipseRoIHeads, EllipseRegressor
+from src.common.conics import crater_representation
+from src.detection.ellipse import EllipseRoIHeads, EllipseRegressor
 
 
 def create_detection_model(backbone_name='resnet18', image_size=256):
@@ -172,29 +172,3 @@ class CraterDetector(GeneralizedRCNN):
     def from_run_id(self, run_id):
         checkpoint = mlflow.pytorch.load_state_dict(f'runs:/{run_id}/artifacts/checkpoint')
         self.load_state_dict(checkpoint['model_state_dict'])
-
-    @torch.no_grad()
-    def get_conics(self, image, min_score=0.98):
-        if self.training:
-            raise RuntimeError("Conic fitting not available when in training mode.")
-
-        if len(image) > 1:
-            raise ValueError("Ellipse fitting works for single image batches only.")
-
-        out = self(image)[0]
-
-        masks = out['masks']
-        scores = out['scores']
-        masks = masks[scores > min_score]
-
-        n_det = len(masks)
-        A = np.zeros((n_det, 3, 3))
-
-        for i in range(n_det):
-            cnt = np.array(np.where(masks[i, 0].numpy() > 0.0)).T[:, None, :]
-            cnt[..., [0, 1]] = cnt[..., [1, 0]]
-            (x, y), (a, b), psi = cv2.fitEllipse(cnt)
-            psi = np.radians(psi)
-            A[i] = crater_representation(a, b, psi, x, y)
-
-        return A
