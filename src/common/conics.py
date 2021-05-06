@@ -50,8 +50,13 @@ def scale_det(matrix):
     np.ndarray
         Normalised matrix.
     """
-
-    return np.cbrt((1. / LA.det(matrix)))[..., None, None] * matrix
+    if isinstance(matrix, np.ndarray):
+        return np.cbrt((1. / LA.det(matrix)))[..., None, None] * matrix
+    elif isinstance(matrix, torch.Tensor):
+        val = 1. / torch.det(matrix)
+        factor = torch.ones_like(val).to(val)
+        factor[val < 0] = -1
+        return (factor * torch.pow(torch.abs(val), 1. / 3.))[..., None, None] * matrix
 
 
 def crater_representation(a, b, psi, x=0, y=0):
@@ -72,35 +77,37 @@ def crater_representation(a, b, psi, x=0, y=0):
 
     Returns
     -------
-    np.ndarray
+    np.ndarray, torch.Tensor
         Array of ellipse matrices
     """
     if isinstance(a, (int, float)):
         out = np.empty((3, 3))
+        pkg = np
+    elif isinstance(a, torch.Tensor):
+        out = torch.empty((len(a), 3, 3), device=a.device, dtype=torch.float32)
+        pkg = torch
     else:
         out = np.empty((len(a), 3, 3))
+        pkg = np
 
-    A = (a ** 2) * np.sin(psi) ** 2 + (b ** 2) * np.cos(psi) ** 2
-    B = 2 * ((b ** 2) - (a ** 2)) * np.cos(psi) * np.sin(psi)
-    C = (a ** 2) * np.cos(psi) ** 2 + b ** 2 * np.sin(psi) ** 2
+    A = (a ** 2) * pkg.sin(psi) ** 2 + (b ** 2) * pkg.cos(psi) ** 2
+    B = 2 * ((b ** 2) - (a ** 2)) * pkg.cos(psi) * pkg.sin(psi)
+    C = (a ** 2) * pkg.cos(psi) ** 2 + b ** 2 * pkg.sin(psi) ** 2
     D = -2 * A * x - B * y
     F = -B * x - 2 * C * y
     G = A * (x ** 2) + B * x * y + C * (y ** 2) - (a ** 2) * (b ** 2)
 
-    out[..., 0, 0] = A
-    out[..., 1, 1] = C
-    out[..., 2, 2] = G
+    out[:, 0, 0] = A
+    out[:, 1, 1] = C
+    out[:, 2, 2] = G
 
-    out[..., 1, 0] = B / 2
-    out[..., 0, 1] = B / 2
+    out[:, 1, 0] = out[:, 0, 1] = B / 2
 
-    out[..., 2, 0] = D / 2
-    out[..., 0, 2] = D / 2
+    out[:, 2, 0] = out[:, 0, 2] = D / 2
 
-    out[..., 2, 1] = F / 2
-    out[..., 1, 2] = F / 2
+    out[:, 2, 1] = out[:, 1, 2] = F / 2
 
-    return scale_det(out)
+    return out
 
 
 @njit
@@ -111,17 +118,33 @@ def conic_center_numba(A):
 
 
 def conic_center(A):
-    return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
+    if isinstance(A, torch.Tensor):
+        return (torch.inverse(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
+    elif isinstance(A, np.ndarray):
+        return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
+    else:
+        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
 
 
 def ellipse_axes(A):
-    lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
-    axes = np.sqrt(1 / lambdas)
+    if isinstance(A, torch.Tensor):
+        lambdas = torch.linalg.eigvalsh(A[..., :2, :2]) / (-torch.det(A) / torch.det(A[..., :2, :2]))[..., None]
+        axes = torch.sqrt(1 / lambdas)
+    elif isinstance(A, np.ndarray):
+        lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
+        axes = np.sqrt(1 / lambdas)
+    else:
+        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
     return axes[..., 1], axes[..., 0]
 
 
 def ellipse_angle(A):
-    return np.arctan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
+    if isinstance(A, torch.Tensor):
+        return torch.atan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
+    elif isinstance(A, np.ndarray):
+        return np.arctan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
+    else:
+        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
 
 
 def plot_conics(A_craters: Union[np.ndarray, torch.Tensor],

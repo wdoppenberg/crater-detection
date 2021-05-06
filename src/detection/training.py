@@ -135,13 +135,15 @@ class CraterEllipseDataset(CraterMaskDataset):
         y_box = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
 
         x, y = conic_center(A_craters).T
-        a, b = ellipse_axes(A_craters)
-        angle = ellipse_angle(A_craters)
+        # a, b = ellipse_axes(A_craters)
+        # angle = ellipse_angle(A_craters)
 
         # TODO: VERIFY
         if len(x_box) > 0 and len(x) > 0:
-            matched_ids = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
-            x, y, a, b, angle = map(lambda arr: arr[matched_ids], (x, y, a, b, angle))
+            matched_idxs = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
+            A_craters = A_craters[matched_idxs]
+            """
+            x, y, a, b, angle = map(lambda arr: arr[matched_idxs], (x, y, a, b, angle))
 
             Q_proposals = torch.zeros((len(boxes), 3))
 
@@ -159,10 +161,12 @@ class CraterEllipseDataset(CraterMaskDataset):
 
             # ellipse_offsets = torch.vstack((d_x, d_y, d_a, d_b, d_angle)).T
             ellipse_offsets = torch.vstack((d_a, d_b, d_angle)).T
+            """
         else:
-            ellipse_offsets = torch.zeros((0, 3))
+            A_craters = torch.zeros((0, 3, 3))
+            # ellipse_offsets = torch.zeros((0, 3))
 
-        target['ellipse_offsets'] = ellipse_offsets.type(torch.float32)
+        target['ellipse_matrices'] = torch.as_tensor(A_craters).type(torch.float32)
 
         return image, target
 
@@ -238,7 +242,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_ellipse_offsets=list(),
+                loss_ellipse_similarity=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             ),
@@ -247,7 +251,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_ellipse_offsets=list(),
+                loss_ellipse_similarity=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             )
@@ -280,7 +284,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                          "loss_total": 0.,
                          "loss_classifier": 0.,
                          "loss_box_reg": 0.,
-                         "loss_ellipse_offsets": 0.,
+                         "loss_ellipse_similarity": 0.,
                          "loss_objectness": 0.,
                          "loss_rpn_box_reg": 0
                      })
@@ -288,8 +292,8 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 images = list(image.to(device) for image in images)
                 targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-                with autocast():
-                    loss_dict = model(images, targets)
+                # with autocast():
+                loss_dict = model(images, targets)
 
                 loss = sum(l for l in loss_dict.values())
 
@@ -317,7 +321,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                              "loss_total": 0.,
                              "loss_classifier": 0.,
                              "loss_box_reg": 0.,
-                             "loss_ellipse_offsets": 0.,
+                             "loss_ellipse_similarity": 0.,
                              "loss_objectness": 0.,
                              "loss_rpn_box_reg": 0
                          })
@@ -325,8 +329,8 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     images = list(image.to(device) for image in images)
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-                    with autocast():
-                        loss_dict = model(images, targets)
+                    # with autocast():
+                    loss_dict = model(images, targets)
 
                     loss = sum(l for l in loss_dict.values())
 

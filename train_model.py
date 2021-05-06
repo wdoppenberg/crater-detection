@@ -10,7 +10,7 @@ def get_parser():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--epochs', type=int, default=20,
                         help='Number of epochs')
-    parser.add_argument('--batch-size', type=int, default=5,
+    parser.add_argument('--batch_size', type=int, default=5,
                         help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')

@@ -1,8 +1,11 @@
 from typing import List, Dict, Optional, Tuple
 
+import numpy as np
 import torch
 from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
+
+from src.common.conics import ellipse_angle, ellipse_axes, crater_representation, conic_center, scale_det
 
 
 class EllipseRegressor(nn.Module):
@@ -21,34 +24,60 @@ class EllipseRegressor(nn.Module):
         return x
 
 
-def ellipsercnn_loss(offset_pred: torch.Tensor, gt_ellipse_offsets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor]) -> torch.Tensor:
-    offset_targets = torch.cat([o[idxs] for o, idxs in zip(gt_ellipse_offsets, pos_matched_idxs)], dim=0)
+def postprocess_ellipses(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
+    box_diag = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
+    cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
+    cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
 
-    if offset_targets.numel() == 0:
-        return offset_pred.sum() * 0
+    a, b = ((torch.exp(param) * box_diag / 2).T for param in (d_a, d_b))
+    theta = d_angle * np.pi
+    ang_cond1 = torch.cos(theta) >= 0
+    ang_cond2 = ~ang_cond1
 
-    sigma_a_t = offset_targets[:, 0]
-    sigma_b_t = offset_targets[:, 1]
+    theta[ang_cond1] = torch.atan2(torch.sin(theta[ang_cond1]), torch.cos(theta[ang_cond1]))
+    theta[ang_cond2] = torch.atan2(-torch.sin(theta[ang_cond2]), -torch.cos(theta[ang_cond2]))
 
-    sigma_a_p = offset_pred[:, 0]
-    sigma_b_p = offset_pred[:, 1]
+    return a, b, theta, cx, cy
 
-    d_angle = offset_pred[:, 2] - offset_targets[:, 2]
-    loss = torch.square(torch.cos(d_angle) * (sigma_a_t / sigma_a_p)) + \
-           torch.square(torch.cos(d_angle) * (sigma_b_t / sigma_b_p)) + \
-           torch.square(torch.sin(d_angle) * (sigma_a_t / sigma_b_p)) + \
-           torch.square(torch.sin(d_angle) * (sigma_b_t / sigma_a_p)) + \
-           torch.log((sigma_a_p/sigma_a_t)**2) + \
-           torch.log((sigma_b_p/sigma_b_t)**2)
 
-    return loss.mean()
+def kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False):
+    cov1, cov2 = map(lambda arr: arr[:, :2, :2], (A1, A2))
+    m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
+
+    trace_term = (torch.inverse(cov1) @ cov2).diagonal(dim2=-2, dim1=-1).sum(1)
+    log_term = torch.log(torch.det(cov1) / torch.det(cov2))
+
+    if shape_only:
+        displacement_term = 0
+    else:
+        displacement_term = ((m1 - m2).transpose(1, 2) @ cov1.inverse() @ (m1 - m2)).squeeze()
+
+    return 0.5 * (trace_term + displacement_term - 2 + log_term)
+
+
+def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
+                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor], multiplier: float = 10.):
+    A_target = torch.cat([o[idxs] for o, idxs in zip(ellipse_matrix_targets, pos_matched_idxs)], dim=0)
+    boxes = torch.cat(boxes, dim=0)
+
+    if A_target.numel() == 0:
+        return d_pred.sum() * 0
+
+    d_a = d_pred[:, 0]
+    d_b = d_pred[:, 1]
+    d_angle = d_pred[:, 2]
+
+    A_pred = crater_representation(*postprocess_ellipses(d_a, d_b, d_angle, boxes))
+
+    A_pred, A_target = map(scale_det, (A_pred, A_target))
+
+    return multiplier * kullback_leibler_divergence(A_pred, A_target, shape_only=True).mean()
 
 
 class EllipseRoIHeads(RoIHeads):
     def __init__(self, box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                  positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img,
-                 ellipse_roi_pool, ellipse_head, ellipse_predictor):
+                 ellipse_roi_pool, ellipse_head, ellipse_predictor, ellipse_loss=ellipse_loss_KLD, min_class_score=0.5):
 
         super().__init__(box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                          positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img)
@@ -56,6 +85,8 @@ class EllipseRoIHeads(RoIHeads):
         self.ellipse_roi_pool = ellipse_roi_pool
         self.ellipse_head = ellipse_head
         self.ellipse_predictor = ellipse_predictor
+        self.ellipse_loss = ellipse_loss
+        self.min_class_score = min_class_score
 
     def has_ellipse_reg(self):
         if self.ellipse_roi_pool is None:
@@ -77,7 +108,7 @@ class EllipseRoIHeads(RoIHeads):
             for t in targets:
                 floating_point_types = (torch.float, torch.double, torch.half)
                 assert t["boxes"].dtype in floating_point_types, 'target boxes must of float type'
-                assert t["ellipse_offsets"].dtype in floating_point_types, 'target ellipse_offsets must of float type'
+                assert t["ellipse_matrices"].dtype in floating_point_types, 'target ellipse_offsets must of float type'
                 assert t["labels"].dtype == torch.int64, 'target labels must of int64 type'
 
         if self.training:
@@ -122,7 +153,7 @@ class EllipseRoIHeads(RoIHeads):
                 ellipse_proposals = []
                 pos_matched_idxs = []
                 for img_id in range(num_images):
-                    pos = torch.where(labels[img_id] > 0)[0]
+                    pos = torch.where(labels[img_id] > self.min_class_score)[0]
                     ellipse_proposals.append(proposals[img_id][pos])
                     pos_matched_idxs.append(matched_idxs[img_id][pos])
             else:
@@ -141,17 +172,20 @@ class EllipseRoIHeads(RoIHeads):
                 assert pos_matched_idxs is not None
                 assert ellipse_logits is not None
 
-                gt_ellipse_offsets = [t["ellipse_offsets"] for t in targets]
-                rcnn_loss_ellipse_reg = ellipsercnn_loss(
-                    ellipse_logits, gt_ellipse_offsets, pos_matched_idxs
+                ellipse_matrix_targets = [t["ellipse_matrices"] for t in targets]
+                rcnn_loss_ellipse = self.ellipse_loss(
+                    ellipse_logits, ellipse_matrix_targets, pos_matched_idxs, ellipse_proposals
                 )
                 loss_ellipse_offsets = {
-                    "loss_ellipse_offsets": rcnn_loss_ellipse_reg
+                    "loss_ellipse_similarity": rcnn_loss_ellipse
                 }
             else:
                 ellipses_per_image = [l.shape[0] for l in labels]
-                for e_l, r in zip(ellipse_logits.split(ellipses_per_image, dim=0), result):
-                    r["ellipse_offsets"] = e_l
+                for e_l, r, box in zip(ellipse_logits.split(ellipses_per_image, dim=0), result, ellipse_proposals):
+                    d_a = e_l[:, 0]
+                    d_b = e_l[:, 1]
+                    d_angle = e_l[:, 2]
+                    r["ellipse_matrices"] = crater_representation(*postprocess_ellipses(d_a, d_b, d_angle, box))
 
             losses.update(loss_ellipse_offsets)
 
