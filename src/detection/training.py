@@ -62,9 +62,10 @@ def collate_fn(batch: Iterable):
 
 
 class CraterMaskDataset(CraterDataset):
-    def __init__(self, min_area=4, *args, **kwargs):
+    def __init__(self, min_area=4, box_padding: float = 0., **kwargs):
         super(CraterMaskDataset, self).__init__(**kwargs)
         self.min_area = min_area
+        self.box_padding = box_padding
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, mask = super(CraterMaskDataset, self).__getitem__(idx)
@@ -82,6 +83,15 @@ class CraterMaskDataset(CraterDataset):
             xmax = pos[1].max()
             ymin = pos[0].min()
             ymax = pos[0].max()
+
+            dx = xmax - xmin
+            dy = ymax - ymin
+
+            xmin -= (dx*self.box_padding).to(xmin)
+            xmax += (dx*self.box_padding).to(xmax)
+            ymin -= (dy*self.box_padding).to(ymin)
+            ymax += (dy*self.box_padding).to(ymax)
+
             boxes[i] = torch.tensor([xmin, ymin, xmax, ymax])
 
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
@@ -114,8 +124,8 @@ class CraterMaskDataset(CraterDataset):
 
 
 class CraterEllipseDataset(CraterMaskDataset):
-    def __init__(self, *args, **kwargs):
-        super(CraterEllipseDataset, self).__init__(*args, min_area=0, **kwargs)
+    def __init__(self, **kwargs):
+        super(CraterEllipseDataset, self).__init__(min_area=0, box_padding=0.1, **kwargs)
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, target = super(CraterEllipseDataset, self).__getitem__(idx)
@@ -135,38 +145,14 @@ class CraterEllipseDataset(CraterMaskDataset):
         y_box = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
 
         x, y = conic_center(A_craters).T
-        # a, b = ellipse_axes(A_craters)
-        # angle = ellipse_angle(A_craters)
 
-        # TODO: VERIFY
         if len(x_box) > 0 and len(x) > 0:
             matched_idxs = cdist(np.vstack((x_box.numpy(), y_box.numpy())).T, np.vstack((x, y)).T).argmin(1)
             A_craters = A_craters[matched_idxs]
-            """
-            x, y, a, b, angle = map(lambda arr: arr[matched_idxs], (x, y, a, b, angle))
-
-            Q_proposals = torch.zeros((len(boxes), 3))
-
-            Q_proposals[:, 0] = x_box
-            Q_proposals[:, 1] = y_box
-            Q_proposals[:, 2] = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
-
-            E_proposals = torch.as_tensor(np.vstack((x, y, a, b, angle)).T)
-
-            # d_x = (E_proposals[:, 0] - Q_proposals[:, 0]) / Q_proposals[:, 2]
-            # d_y = (E_proposals[:, 1] - Q_proposals[:, 1]) / Q_proposals[:, 2]
-            d_a = torch.log(2 * E_proposals[:, 2] / Q_proposals[:, 2])
-            d_b = torch.log(2 * E_proposals[:, 3] / Q_proposals[:, 2])
-            d_angle = E_proposals[:, 4] / np.pi
-
-            # ellipse_offsets = torch.vstack((d_x, d_y, d_a, d_b, d_angle)).T
-            ellipse_offsets = torch.vstack((d_a, d_b, d_angle)).T
-            """
         else:
             A_craters = torch.zeros((0, 3, 3))
-            # ellipse_offsets = torch.zeros((0, 3))
 
-        target['ellipse_matrices'] = torch.as_tensor(A_craters).type(torch.float32)
+        target['ellipse_matrices'] = torch.as_tensor(A_craters, dtype=torch.float32)
 
         return image, target
 
@@ -189,7 +175,7 @@ def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 
 
 
 def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr=1e-2, run_id: str = None,
-                scheduler=None, batch_size: int = 10, momentum: float = 0.5, weight_decay: float = 1e-5,
+                scheduler=None, batch_size: int = 10, momentum: float = 0.9, weight_decay: float = 1e-7,
                 num_workers: int = 4, device=None) -> None:
     train_loader, validation_loader, test_loader = get_dataloaders(dataset_path, batch_size, num_workers)
 

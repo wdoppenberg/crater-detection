@@ -24,7 +24,7 @@ class EllipseRegressor(nn.Module):
         return x
 
 
-def postprocess_ellipse_logits(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
+def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
     box_diag = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
     cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
@@ -41,7 +41,7 @@ def postprocess_ellipse_logits(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: to
 
 
 def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False):
-    cov1, cov2 = map(lambda arr: arr[:, :2, :2], (A1, A2))
+    cov1, cov2 = map(lambda arr: arr[..., :2, :2], (A1, A2))
     m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
 
     trace_term = (torch.inverse(cov1) @ cov2).diagonal(dim2=-2, dim1=-1).sum(1)
@@ -50,13 +50,13 @@ def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_onl
     if shape_only:
         displacement_term = 0
     else:
-        displacement_term = ((m1 - m2).transpose(1, 2) @ cov1.inverse() @ (m1 - m2)).squeeze()
+        displacement_term = ((m1 - m2).transpose(-1, -2) @ cov1.inverse() @ (m1 - m2)).squeeze()
 
     return 0.5 * (trace_term + displacement_term - 2 + log_term)
 
 
 def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor], multiplier: float = 10.):
+                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor], multiplier: float = 1.):
     A_target = torch.cat([o[idxs] for o, idxs in zip(ellipse_matrix_targets, pos_matched_idxs)], dim=0)
     boxes = torch.cat(boxes, dim=0)
 
@@ -67,11 +67,14 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
     d_b = d_pred[:, 1]
     d_angle = d_pred[:, 2]
 
-    A_pred = crater_representation(*postprocess_ellipse_logits(d_a, d_b, d_angle, boxes))
+    A_pred = crater_representation(*postprocess_ellipse_predictor(d_a, d_b, d_angle, boxes))
 
     A_pred, A_target = map(scale_det, (A_pred, A_target))
 
-    return multiplier * mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True).mean()
+    loss1 = mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True)
+    loss2 = mv_kullback_leibler_divergence(A_target, A_pred, shape_only=True)
+
+    return multiplier * (loss1 + loss2).mean()
 
 
 class EllipseRoIHeads(RoIHeads):
@@ -162,7 +165,7 @@ class EllipseRoIHeads(RoIHeads):
             if self.ellipse_roi_pool is not None:
                 ellipse_features = self.ellipse_roi_pool(features, ellipse_proposals, image_shapes)
                 ellipse_features = self.ellipse_head(ellipse_features)
-                ellipse_logits = self.ellipse_predictor(ellipse_features)
+                ellipse_shapes_normalised = self.ellipse_predictor(ellipse_features)
             else:
                 raise Exception("Expected ellipse_roi_pool to be not None")
 
@@ -170,22 +173,22 @@ class EllipseRoIHeads(RoIHeads):
             if self.training:
                 assert targets is not None
                 assert pos_matched_idxs is not None
-                assert ellipse_logits is not None
+                assert ellipse_shapes_normalised is not None
 
                 ellipse_matrix_targets = [t["ellipse_matrices"] for t in targets]
                 rcnn_loss_ellipse = self.ellipse_loss(
-                    ellipse_logits, ellipse_matrix_targets, pos_matched_idxs, ellipse_proposals
+                    ellipse_shapes_normalised, ellipse_matrix_targets, pos_matched_idxs, ellipse_proposals, multiplier=5.
                 )
                 loss_ellipse_offsets = {
                     "loss_ellipse_similarity": rcnn_loss_ellipse
                 }
             else:
                 ellipses_per_image = [l.shape[0] for l in labels]
-                for e_l, r, box in zip(ellipse_logits.split(ellipses_per_image, dim=0), result, ellipse_proposals):
+                for e_l, r, box in zip(ellipse_shapes_normalised.split(ellipses_per_image, dim=0), result, ellipse_proposals):
                     d_a = e_l[:, 0]
                     d_b = e_l[:, 1]
                     d_angle = e_l[:, 2]
-                    r["ellipse_matrices"] = crater_representation(*postprocess_ellipse_logits(d_a, d_b, d_angle, box))
+                    r["ellipse_matrices"] = crater_representation(*postprocess_ellipse_predictor(d_a, d_b, d_angle, box))
 
             losses.update(loss_ellipse_offsets)
 

@@ -10,7 +10,7 @@ def get_parser():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--epochs', type=int, default=20,
                         help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=5,
+    parser.add_argument('--batch_size', type=int, default=10,
                         help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')
@@ -20,11 +20,11 @@ def get_parser():
                         help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
-    parser.add_argument('--dataset', type=str, default="data/dataset_ellipse_offsets_v1.h5",
+    parser.add_argument('--dataset', type=str, default="data/dataset_ellipse_offsets_v2.h5",
                         help='Dataset path')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='Momentum input for SGD optimizer.')
-    parser.add_argument('--weight_decay', type=float, default=1e-6,
+    parser.add_argument('--weight_decay', type=float, default=1e-7,
                         help='Weight decay input for SGD optimizer.')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to train model on (`cpu` or `cuda`)')
