@@ -40,7 +40,8 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle:
     return a, b, theta, cx, cy
 
 
-def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False):
+def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = True):
+    A1, A2 = map(scale_det, (A1, A2))
     cov1, cov2 = map(lambda arr: arr[..., :2, :2], (A1, A2))
     m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
 
@@ -50,6 +51,7 @@ def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_onl
     if shape_only:
         displacement_term = 0
     else:
+        # TODO: Fix displacement term returning negative numbers
         displacement_term = ((m1 - m2).transpose(-1, -2) @ cov1.inverse() @ (m1 - m2)).squeeze()
 
     return 0.5 * (trace_term + displacement_term - 2 + log_term)
@@ -69,8 +71,6 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
 
     A_pred = crater_representation(*postprocess_ellipse_predictor(d_a, d_b, d_angle, boxes))
 
-    A_pred, A_target = map(scale_det, (A_pred, A_target))
-
     loss1 = mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True)
     loss2 = mv_kullback_leibler_divergence(A_target, A_pred, shape_only=True)
 
@@ -80,7 +80,7 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
 class EllipseRoIHeads(RoIHeads):
     def __init__(self, box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                  positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img,
-                 ellipse_roi_pool, ellipse_head, ellipse_predictor, ellipse_loss=ellipse_loss_KLD, min_class_score=0.5):
+                 ellipse_roi_pool, ellipse_head, ellipse_predictor, ellipse_loss=ellipse_loss_KLD):
 
         super().__init__(box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                          positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img)
@@ -89,7 +89,6 @@ class EllipseRoIHeads(RoIHeads):
         self.ellipse_head = ellipse_head
         self.ellipse_predictor = ellipse_predictor
         self.ellipse_loss = ellipse_loss
-        self.min_class_score = min_class_score
 
     def has_ellipse_reg(self):
         if self.ellipse_roi_pool is None:
@@ -156,7 +155,7 @@ class EllipseRoIHeads(RoIHeads):
                 ellipse_proposals = []
                 pos_matched_idxs = []
                 for img_id in range(num_images):
-                    pos = torch.where(labels[img_id] > self.min_class_score)[0]
+                    pos = torch.where(labels[img_id] > 0)[0]
                     ellipse_proposals.append(proposals[img_id][pos])
                     pos_matched_idxs.append(matched_idxs[img_id][pos])
             else:

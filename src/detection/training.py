@@ -200,7 +200,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler is None:
-            scheduler = StepLR(optimizer, step_size=10)
+            scheduler = StepLR(optimizer, step_size=20)
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     else:
         checkpoint = dict()
@@ -208,7 +208,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
         if scheduler is None:
-            scheduler = StepLR(optimizer, step_size=10)
+            scheduler = StepLR(optimizer, step_size=20)
 
     tracked_params = ('momentum', 'weight_decay', 'dampening')
 

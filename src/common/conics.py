@@ -43,7 +43,7 @@ def scale_det(matrix):
 
     Parameters
     ----------
-    matrix: np.ndarray
+    matrix: np.ndarray, torch.Tensor
         Matrix input
     Returns
     -------
@@ -64,15 +64,15 @@ def crater_representation(a, b, psi, x=0, y=0):
 
     Parameters
     ----------
-    x
+    x: np.ndarray, torch.Tensor, int, float
         X-position in 2D cartesian coordinate system (coplanar)
-    y
+    y: np.ndarray, torch.Tensor, int, float
         Y-position in 2D cartesian coordinate system (coplanar)
-    a
+    a: np.ndarray, torch.Tensor, int, float
         Semi-major ellipse axis
-    b
+    b: np.ndarray, torch.Tensor, int, float
         Semi-minor ellipse axis
-    psi
+    psi: np.ndarray, torch.Tensor, int, float
         Ellipse angle (radians)
 
     Returns

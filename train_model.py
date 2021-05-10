@@ -6,17 +6,17 @@ from src.detection import create_detection_model, train_model
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description='Train the crater detection model on images and target masks',
+    parser = argparse.ArgumentParser(description='Train the crater detection model on images and target ellipses',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--epochs', type=int, default=20,
                         help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=10,
+    parser.add_argument('--batch_size', type=int, default=8,
                         help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')
     parser.add_argument('--learning_rate', type=float, default=0.001,
                         help='Learning rate', nargs='?')
-    parser.add_argument('--backbone', type=str, default="resnet18",
+    parser.add_argument('--backbone', type=str, default="resnet50",
                         help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
