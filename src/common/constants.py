@@ -15,7 +15,7 @@ CAMERA_RESOLUTION = (256, 256)
 # Dataset generation
 DIAMLIMS = (4, 100)  # Limit dataset to craters with diameter between 4 and 30 km
 MAX_ELLIPTICITY = 1.3  # Limit dataset to craters with an ellipticity <= 1.1]
-ARC_LIMS = 0.3
+ARC_LIMS = 0.0
 AXIS_THRESHOLD = (5, 100)
 MIN_SOL_INCIDENCE = 10
 MAX_SOL_INCIDENCE = 80
