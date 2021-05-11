@@ -45,6 +45,14 @@ optional arguments:
 ```
 
 ## Model training
+
+Start MLflow server using:
+```
+mlflow server --backend-store-uri=sqlite:///mlruns.db --default-artifact-root=artifacts
+```
+
+After installing all required packages and retrieving the dataset, start training using `train_model.py`:
+
 ```
 usage: train_model.py [-h] [--epochs EPOCHS] [--batch_size BATCH_SIZE]
                       [--num_workers NUM_WORKERS]
