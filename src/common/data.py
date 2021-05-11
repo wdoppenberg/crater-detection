@@ -99,10 +99,10 @@ def make_dataset(n_training,
                  identifier=None,
                  generation_kwargs=None):
     if output_path is None:
-        if identifier is None:
-            identifier = str(uuid.uuid4())
-
-        output_path = f"data/dataset_{identifier}.h5"
+        if identifier is not None:
+            output_path = f"data/dataset_{identifier}.h5"
+        else:
+            output_path = "data/dataset_crater_detection.h5"
 
     generation_kwargs_ = const.GENERATION_KWARGS
     if generation_kwargs is not None:

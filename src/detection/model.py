@@ -176,9 +176,7 @@ class CraterDetector(GeneralizedRCNN):
 
         out = self(image)[0]
         scores, A_craters_pred = out["scores"], out["ellipse_matrices"]
-        min_score = 0.5
         return A_craters_pred[scores > min_score]
-
 
     def from_run_id(self, run_id):
         checkpoint = mlflow.pytorch.load_state_dict(f'runs:/{run_id}/artifacts/checkpoint')

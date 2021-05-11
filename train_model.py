@@ -20,7 +20,7 @@ def get_parser():
                         help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
-    parser.add_argument('--dataset', type=str, default="data/dataset_crater_detection.h5",
+    parser.add_argument('--dataset', type=str, default="data/dataset_crater_detection_40k.h5",
                         help='Dataset path')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='Momentum input for SGD optimizer.')

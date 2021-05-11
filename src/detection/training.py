@@ -245,7 +245,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
     with mlflow.start_run(**run_args) as run:
         run_id = run.info.run_id
-        print(run_id)
+        print(f"MLflow run ID:\n\t{run_id}")
 
         if not pretrained:
             mlflow.log_param('optimizer', type(optimizer).__name__)

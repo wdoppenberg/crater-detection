@@ -5,7 +5,8 @@ import src.common.constants as const
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description='Create dataset containing input images and relevant ellipses',
+    parser = argparse.ArgumentParser(description='Create dataset containing input images and relevant ellipses using '
+                                                 'SurRender.',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--n_train', type=int, default=20000,
                         help='Number of training images')
