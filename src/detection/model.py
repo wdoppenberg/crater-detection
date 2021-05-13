@@ -1,23 +1,19 @@
-import cv2
 import mlflow
-import numpy as np
 import torch
 from torch.nn import Conv2d
-from torchvision.models.detection import MaskRCNN, FasterRCNN
+from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredictor
 from torchvision.models.detection.generalized_rcnn import GeneralizedRCNN
-from torchvision.models.detection.roi_heads import RoIHeads
 from torchvision.models.detection.rpn import RPNHead, RegionProposalNetwork
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.ops import MultiScaleRoIAlign
 
-from src.common.conics import crater_representation
 from src.detection.roi_heads import EllipseRoIHeads, EllipseRegressor
 
 
-def create_detection_model(backbone_name='resnet18', image_size=256):
+def create_detection_model(backbone_name='resnet50', image_size=256):
     backbone = resnet_fpn_backbone(backbone_name, pretrained=True, trainable_layers=5)
 
     # Input image is grayscale -> in_channels = 1 instead of 3 (COCO)
@@ -107,7 +103,8 @@ class CraterDetector(GeneralizedRCNN):
             rpn_fg_iou_thresh, rpn_bg_iou_thresh,
             rpn_batch_size_per_image, rpn_positive_fraction,
             rpn_pre_nms_top_n, rpn_post_nms_top_n, rpn_nms_thresh,
-            score_thresh=rpn_score_thresh)
+            score_thresh=rpn_score_thresh
+        )
 
         if box_roi_pool is None:
             box_roi_pool = MultiScaleRoIAlign(
@@ -120,13 +117,15 @@ class CraterDetector(GeneralizedRCNN):
             representation_size = 1024
             box_head = TwoMLPHead(
                 out_channels * resolution ** 2,
-                representation_size)
+                representation_size
+            )
 
         if box_predictor is None:
             representation_size = 1024
             box_predictor = FastRCNNPredictor(
                 representation_size,
-                num_classes)
+                num_classes
+            )
 
         if ellipse_roi_pool is None:
             ellipse_roi_pool = MultiScaleRoIAlign(
@@ -170,14 +169,16 @@ class CraterDetector(GeneralizedRCNN):
         super().__init__(backbone, rpn, roi_heads, transform)
 
     @torch.no_grad()
-    def get_conics(self, image: torch.Tensor, min_score=0.7):
+    def get_conics(self, images: torch.Tensor, min_score=0.75, return_list=False):
         if self.training:
-            raise RuntimeError("Only works when in eval mode.")
+            raise RuntimeError("Set the model to eval mode.")
 
-        out = self(image)[0]
-        scores, A_craters_pred = out["scores"], out["ellipse_matrices"]
-        return A_craters_pred[scores > min_score]
+        A_list = []
+        for out in self(images):
+            scores, A_craters_pred = out["scores"], out["ellipse_matrices"]
+            A_list.append(A_craters_pred[scores > min_score])
 
-    def from_run_id(self, run_id):
-        checkpoint = mlflow.pytorch.load_state_dict(f'runs:/{run_id}/artifacts/checkpoint')
-        self.load_state_dict(checkpoint['model_state_dict'])
+        if len(images) == 1 and not return_list:
+            return A_list[0]
+        else:
+            return A_list

@@ -69,6 +69,13 @@ class CraterMaskDataset(CraterDataset):
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, mask = super(CraterMaskDataset, self).__getitem__(idx)
+
+        if self.dataset is None:
+            self.dataset = h5py.File(self.file_path, 'r')
+
+        position = torch.as_tensor(self.dataset[self.group]["position"][idx], dtype=torch.float64)
+        attitude = torch.as_tensor(self.dataset[self.group]["attitude"][idx], dtype=torch.float64)
+
         mask: torch.Tensor = mask.int()
 
         obj_ids = mask.unique()[1:]
@@ -113,7 +120,9 @@ class CraterMaskDataset(CraterDataset):
             masks=masks,
             image_id=image_id,
             area=area,
-            iscrowd=iscrowd
+            iscrowd=iscrowd,
+            position=position,
+            attitude=attitude
         )
 
         return image, target

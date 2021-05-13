@@ -14,7 +14,7 @@ def get_parser():
                         help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')
-    parser.add_argument('--learning_rate', type=float, default=0.001,
+    parser.add_argument('--learning_rate', type=float, default=0.01,
                         help='Learning rate', nargs='?')
     parser.add_argument('--backbone', type=str, default="resnet50",
                         help='Model backbone ResNet type.')

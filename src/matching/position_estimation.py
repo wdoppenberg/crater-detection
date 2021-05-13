@@ -98,7 +98,7 @@ def pos_lsq_broadcast(A, b):
 
 
 def calculate_position(A_detections,
-                       db,
+                       database,
                        T,
                        K,
                        batch_size=1000,
@@ -122,10 +122,10 @@ def calculate_position(A_detections,
         batch_size = len(crater_triads)
 
     # Get top-k matches w.r.t. index
-    min_n = db.query(key, k=top_n)
+    min_n = database.query(key, k=top_n)
 
     A_match = A_detections[crater_triads]
-    r_match, C_match = map(partial(np.moveaxis, source=1, destination=0), db[min_n])
+    r_match, C_match = map(partial(np.moveaxis, source=1, destination=0), database[min_n])
 
     S = np.concatenate((np.identity(2), np.zeros((1, 2))), axis=0)
     k = np.array([0., 0., 1.])[:, None]
