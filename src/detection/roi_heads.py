@@ -6,7 +6,7 @@ from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
 from src.common.conics import mv_kullback_leibler_divergence, gaussian_angle_distance
-from src.common.conics import crater_representation
+from src.common.conics import conic_matrix
 
 
 class EllipseRegressor(nn.Module):
@@ -38,7 +38,7 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle:
     theta[ang_cond1] = torch.atan2(torch.sin(theta[ang_cond1]), torch.cos(theta[ang_cond1]))
     theta[ang_cond2] = torch.atan2(-torch.sin(theta[ang_cond2]), -torch.cos(theta[ang_cond2]))
 
-    return crater_representation(a, b, theta, cx, cy)
+    return conic_matrix(a, b, theta, cx, cy)
 
 
 def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],

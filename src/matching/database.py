@@ -12,7 +12,7 @@ import src.common.constants as const
 from common.conics import crater_camera_homography
 from common.robbins import load_craters
 from src.common.camera import camera_matrix
-from src.common.conics import crater_representation, conic_center
+from src.common.conics import conic_matrix, conic_center
 from src.common.coordinates import nadir_attitude
 from src.matching.position_estimation import calculate_position
 from src.matching.projective_invariants import CoplanarInvariants
@@ -72,7 +72,7 @@ class CraterDatabase:
 
         self._lat = lat
         self._long = long
-        self._C_cat = crater_representation(major_axis, minor_axis, psi)
+        self._C_cat = conic_matrix(major_axis, minor_axis, psi)
 
         x, y, z = map(np.array, spherical_to_cartesian(Rbody, self._lat, self._long))
 

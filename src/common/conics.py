@@ -59,21 +59,21 @@ def scale_det(matrix):
         return (factor * torch.pow(torch.abs(val), 1. / 3.))[..., None, None] * matrix
 
 
-def crater_representation(a, b, psi, x=0, y=0):
+def conic_matrix(a, b, psi, x=0, y=0):
     """Returns matrix representation for crater derived from ellipse parameters
 
     Parameters
     ----------
-    x: np.ndarray, torch.Tensor, int, float
-        X-position in 2D cartesian coordinate system (coplanar)
-    y: np.ndarray, torch.Tensor, int, float
-        Y-position in 2D cartesian coordinate system (coplanar)
     a: np.ndarray, torch.Tensor, int, float
         Semi-major ellipse axis
     b: np.ndarray, torch.Tensor, int, float
         Semi-minor ellipse axis
     psi: np.ndarray, torch.Tensor, int, float
         Ellipse angle (radians)
+    x: np.ndarray, torch.Tensor, int, float
+        X-position in 2D cartesian coordinate system (coplanar)
+    y: np.ndarray, torch.Tensor, int, float
+        Y-position in 2D cartesian coordinate system (coplanar)
 
     Returns
     -------
@@ -405,7 +405,7 @@ class MaskGenerator(ConicProjector):
             load_craters(file_path, diamlims=diamlims, ellipse_limit=ellipse_limit, arc_lims=arc_lims)
         )
         r_craters_catalogue = np.array(np.array(spherical_to_cartesian(const.RMOON, lat_cat, long_cat))).T[..., None]
-        C_craters_catalogue = crater_representation(major_cat, minor_cat, psi_cat)
+        C_craters_catalogue = conic_matrix(major_cat, minor_cat, psi_cat)
 
         return cls(r_craters_catalogue=r_craters_catalogue,
                    C_craters_catalogue=C_craters_catalogue,

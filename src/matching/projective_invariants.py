@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 
-from src.common.conics import matrix_adjugate, scale_det, crater_representation, conic_center
+from src.common.conics import matrix_adjugate, scale_det, conic_matrix, conic_center
 from src.matching.utils import np_swap_columns, is_colinear, is_clockwise, enhanced_pattern_shifting, \
     shift_nd
 
@@ -86,7 +86,7 @@ class PermutationInvariant:
 class CoplanarInvariants:
     def __init__(self, crater_triads, A_i, A_j, A_k, normalize_det=True):
         """Generates projective invariants [1] assuming craters are coplanar. Input is an array of crater matrices
-        such as those generated using L{crater_representation}.
+        such as those generated using L{conic_matrix}.
 
         Parameters
         ----------
@@ -213,7 +213,7 @@ class CoplanarInvariants:
             if convert_to_radians:
                 psi_pix = np.radians(psi_pix)
 
-            A_craters = crater_representation(a_pix, b_pix, psi_pix, x_pix, y_pix)
+            A_craters = conic_matrix(a_pix, b_pix, psi_pix, x_pix, y_pix)
         else:
             raise ValueError("No detections provided! Use either parameterized ellipse values or conics as input.")
 
