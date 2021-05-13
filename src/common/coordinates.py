@@ -133,10 +133,10 @@ class OrbitingBodyBase:
     def __init__(self,
                  position=None,
                  attitude=None,
-                 orbiting_body_radius=const.RMOON
+                 primary_body_radius=const.RMOON
                  ):
 
-        self._orbiting_body_radius = orbiting_body_radius
+        self._primary_body_radius = primary_body_radius
         self.__position = None
         self.__attitude = None
 
@@ -156,7 +156,7 @@ class OrbitingBodyBase:
             lat, long = map(np.radians, (lat, long))
 
         position = np.array(spherical_to_cartesian(Rbody + height, lat, long))
-        return cls(position=position, attitude=attitude, orbiting_body_radius=Rbody)
+        return cls(position=position, attitude=attitude, primary_body_radius=Rbody)
 
     @property
     def position(self) -> np.ndarray:
@@ -183,10 +183,10 @@ class OrbitingBodyBase:
             elif len(position.shape) > 2:
                 raise ValueError("Position vector must be 1 or 2-dimensional (3x1)!")
 
-            if LA.norm(position) < self._orbiting_body_radius:
+            if LA.norm(position) < self._primary_body_radius:
                 raise ValueError(
                     f"New position vector is inside the Moon! (Distance to center = {LA.norm(position):.2f} km, "
-                    f"R_moon = {self._orbiting_body_radius})"
+                    f"R_moon = {self._primary_body_radius})"
                 )
 
             if not position.dtype == np.float64:
@@ -207,7 +207,7 @@ class OrbitingBodyBase:
         if convert_to_radians:
             lat, long = map(np.radians, (lat, long))
 
-        self.position = np.array(spherical_to_cartesian(self._orbiting_body_radius + height, lat, long))
+        self.position = np.array(spherical_to_cartesian(self._primary_body_radius + height, lat, long))
 
         if point_nadir:
             self.point_nadir()
@@ -262,7 +262,7 @@ class OrbitingBodyBase:
 
     @property
     def height(self):
-        return LA.norm(self.position) - self._orbiting_body_radius
+        return LA.norm(self.position) - self._primary_body_radius
 
     @height.setter
     def height(self, height):
@@ -277,7 +277,7 @@ class OrbitingBodyBase:
         if height <= 0:
             raise ValueError(f"Height cannot be below 0! (height = {height})")
 
-        self.position = (self.position / LA.norm(self.position)) * (self._orbiting_body_radius + height)
+        self.position = (self.position / LA.norm(self.position)) * (self._primary_body_radius + height)
 
     def rotate(self, axis: str, angle: float, degrees: bool = True, reset_first: bool = False):
         if axis not in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
@@ -301,4 +301,4 @@ class OrbitingBodyBase:
         self.attitude = np.concatenate(nadir_attitude(self.position), axis=-1)
 
     def suborbital_position(self):
-        return suborbital_coords(self.r, self._orbiting_body_radius)
+        return suborbital_coords(self.r, self._primary_body_radius)

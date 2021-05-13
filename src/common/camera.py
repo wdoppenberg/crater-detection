@@ -105,7 +105,7 @@ class Camera(OrbitingBodyBase):
             lat, long = map(np.radians, (lat, long))
 
         position = np.array(spherical_to_cartesian(Rbody + height, lat, long))
-        return cls(position=position, attitude=attitude, fov=fov, resolution=resolution, orbiting_body_radius=Rbody)
+        return cls(position=position, attitude=attitude, fov=fov, resolution=resolution, primary_body_radius=Rbody)
 
     @property
     def fov(self) -> Tuple:
