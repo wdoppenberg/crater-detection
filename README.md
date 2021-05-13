@@ -9,7 +9,7 @@ This repository contains the necessary components to compose a Terrain-Relative 
 
 ![Crater detector](./docs/model-architecture.png)
 
-## Dataset creation (SurRender server required)
+## Dataset creation ([SurRender](https://www.airbus.com/space/space-exploration/SurRenderSoftware.html) server required)
 ```
 usage: create_dataset.py [-h] [--n_train N_TRAIN] [--n_val N_VAL]
                          [--n_test N_TEST] [--identifier IDENTIFIER]
