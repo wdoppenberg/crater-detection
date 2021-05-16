@@ -13,29 +13,11 @@ from torchvision.ops import MultiScaleRoIAlign
 from src.detection.roi_heads import EllipseRoIHeads, EllipseRegressor
 
 
-def create_detection_model(backbone_name='resnet50', image_size=256):
-    backbone = resnet_fpn_backbone(backbone_name, pretrained=True, trainable_layers=5)
-
-    # Input image is grayscale -> in_channels = 1 instead of 3 (COCO)
-    backbone.body.conv1 = Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-
-    model = MaskRCNN(
-        backbone=backbone,
-        num_classes=2,
-        min_size=image_size,
-        max_size=image_size,
-        image_mean=[0.156],
-        image_std=[0.272]
-    )
-
-    return model
-
-
 class CraterDetector(GeneralizedRCNN):
     def __init__(self,
                  num_classes=2,
                  # transform parameters
-                 backbone_name='resnet18',
+                 backbone_name='resnet50',
                  min_size=256,
                  max_size=512,
                  image_mean=None,
@@ -110,7 +92,8 @@ class CraterDetector(GeneralizedRCNN):
             box_roi_pool = MultiScaleRoIAlign(
                 featmap_names=['0', '1', '2', '3'],
                 output_size=7,
-                sampling_ratio=2)
+                sampling_ratio=2
+            )
 
         if box_head is None:
             resolution = box_roi_pool.output_size[0]
@@ -131,7 +114,8 @@ class CraterDetector(GeneralizedRCNN):
             ellipse_roi_pool = MultiScaleRoIAlign(
                 featmap_names=['0', '1', '2', '3'],
                 output_size=7,
-                sampling_ratio=2)
+                sampling_ratio=2
+            )
 
         if ellipse_head is None:
             resolution = box_roi_pool.output_size[0]

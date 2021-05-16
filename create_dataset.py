@@ -10,7 +10,7 @@ def get_parser():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--n_train', type=int, default=20000,
                         help='Number of training images')
-    parser.add_argument('--n_val', type=int, default=1000,
+    parser.add_argument('--n_val', type=int, default=2000,
                         help='Number of validation images')
     parser.add_argument('--n_test', type=int, default=1000,
                         help='Number of testing images')

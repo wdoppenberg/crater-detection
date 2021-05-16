@@ -9,7 +9,7 @@ def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",
                  longlims=None,
                  diamlims=const.DIAMLIMS,
                  ellipse_limit=const.MAX_ELLIPTICITY,
-                 arc_lims=0.8
+                 arc_lims=0.0
                  ):
     df_craters = pd.read_csv(path)
     df_craters.query("ARC_IMG > @arc_lims", inplace=True)

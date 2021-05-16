@@ -86,9 +86,11 @@ def conic_matrix(a, b, psi, x=0, y=0):
     elif isinstance(a, torch.Tensor):
         out = torch.empty((len(a), 3, 3), device=a.device, dtype=torch.float32)
         pkg = torch
-    else:
+    elif isinstance(a, np.ndarray):
         out = np.empty((len(a), 3, 3))
         pkg = np
+    else:
+        raise TypeError("Input must be of type torch.Tensor, np.ndarray, int or float.")
 
     A = (a ** 2) * pkg.sin(psi) ** 2 + (b ** 2) * pkg.cos(psi) ** 2
     B = 2 * ((b ** 2) - (a ** 2)) * pkg.cos(psi) * pkg.sin(psi)
@@ -123,7 +125,7 @@ def conic_center(A):
     elif isinstance(A, np.ndarray):
         return (LA.inv(A[..., :2, :2]) @ -A[..., :2, 2][..., None])[..., 0]
     else:
-        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
+        raise TypeError("Input conics must be of type torch.Tensor or np.ndarray.")
 
 
 def ellipse_axes(A):
@@ -134,7 +136,7 @@ def ellipse_axes(A):
         lambdas = LA.eigvalsh(A[..., :2, :2]) / (-LA.det(A) / LA.det(A[..., :2, :2]))[..., None]
         axes = np.sqrt(1 / lambdas)
     else:
-        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
+        raise TypeError("Input conics must be of type torch.Tensor or np.ndarray.")
     return axes[..., 1], axes[..., 0]
 
 
@@ -144,7 +146,7 @@ def ellipse_angle(A):
     elif isinstance(A, np.ndarray):
         return np.arctan2(2 * A[..., 1, 0], (A[..., 0, 0] - A[..., 1, 1])) / 2
     else:
-        raise TypeError("Input conics must of type torch.Tensor or np.ndarray.")
+        raise TypeError("Input conics must be of type torch.Tensor or np.ndarray.")
 
 
 def plot_conics(A_craters: Union[np.ndarray, torch.Tensor],

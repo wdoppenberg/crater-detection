@@ -13,11 +13,11 @@ from scipy.spatial.distance import cdist
 from torch import nn
 from torch.cuda.amp import autocast
 from torch.optim import SGD
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
-from src.common.conics import conic_center, ellipse_angle, ellipse_axes
+from src.common.conics import conic_center, ellipse_angle, ellipse_axes, gaussian_angle_distance, plot_conics
 from src.common.data import inspect_dataset
 from src.detection.visualisation import draw_patches
 
@@ -173,11 +173,11 @@ def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 
                               shuffle=True)
 
     validation_dataset = CraterEllipseDataset(file_path=dataset_path, group="validation")
-    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, num_workers=0,
-                                   collate_fn=collate_fn)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, num_workers=num_workers,
+                                   collate_fn=collate_fn, shuffle=True)
 
     test_dataset = CraterEllipseDataset(file_path=dataset_path, group="test")
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=0, collate_fn=collate_fn,
+    test_loader = DataLoader(test_dataset, batch_size=1, num_workers=0, collate_fn=collate_fn,
                              shuffle=True)
 
     return train_loader, validation_loader, test_loader
@@ -209,7 +209,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler is None:
-            scheduler = StepLR(optimizer, step_size=20)
+            scheduler = ReduceLROnPlateau(optimizer, patience=5, cooldown=2)
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     else:
         checkpoint = dict()
@@ -217,7 +217,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = SGD(params, lr=initial_lr, momentum=momentum, weight_decay=weight_decay)
         if scheduler is None:
-            scheduler = StepLR(optimizer, step_size=20)
+            scheduler = ReduceLROnPlateau(optimizer, patience=5, cooldown=2)
 
     tracked_params = ('momentum', 'weight_decay', 'dampening')
 
@@ -344,7 +344,6 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     bar.set_postfix(ordered_dict=postfix)
 
             time_elapsed = time.time() - since
-            scheduler.step()
 
             for k, v in run_metrics["train"].items():
                 if k == "batch":
@@ -356,6 +355,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     continue
                 mlflow.log_metric("valid_" + k, mean(v[(e - 1) * len(validation_loader):e * len(validation_loader)]),
                                   step=e)
+            scheduler.step(mean(run_metrics["valid"]["loss_total"][(e - 1) * len(validation_loader):e * len(validation_loader)]))
 
             state_dict = {
                 'epoch': e,
@@ -368,29 +368,35 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
             mlflow.pytorch.log_state_dict(state_dict, artifact_path="checkpoint")
 
-            """
+            images, targets = next(iter(test_loader))
+            images = list(image.to(device) for image in images)
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
             model.eval()
-            with torch.no_grad():
-                images, targets = next(iter(test_loader))
-                images = list(image.cuda() for image in images)
-                targets = [{k: v.cuda() for k, v in t.items()} for t in targets]
 
-                out = model(images)
+            A_craters_pred = model.get_conics(images, min_score=0.75).cpu()
+            A_craters_target = targets[0]["ellipse_matrices"].cpu()
 
-            min_score = 0.7
+            m_target = conic_center(targets[0]["ellipse_matrices"].cpu())
+            m_pred = conic_center(A_craters_pred)
 
-            boxes, labels, scores, masks = map(lambda x: x.cpu(), out[0].values())
+            matched_idxs = torch.cdist(m_target, m_pred).argmin(0)
 
-            fig, axes = plt.subplots(1, 4, figsize=(25, 20))
+            A_craters_target = A_craters_target[matched_idxs]
 
-            axes[0].imshow(images[0][0].cpu().numpy(), cmap='gray')
-            axes[1].imshow(torch.sum(targets[0]['masks'], dim=0).clamp(0, 1).cpu().numpy(), cmap='gray')
-            axes[2].imshow(torch.sum(out[0]['masks'][scores > min_score], dim=0).clamp(0, 1).cpu().numpy()[0],
-                           cmap='gray')
-            draw_patches(images[0].cpu(), boxes, labels, scores, masks, min_score=min_score, ax=axes[3])
+            dist = gaussian_angle_distance(A_craters_target, A_craters_pred)
+            m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A_craters_pred, A_craters_target))
 
-            mlflow.log_figure(fig, f"sample_output_e{e}.png")
-            """
+            fig, ax = plt.subplots(figsize=(10, 10))
+
+            ax.imshow(images[0][0].cpu().numpy(), cmap='gray')
+            plot_conics(A_craters_target, ax=ax, rim_color='cyan')
+            plot_conics(A_craters_pred, ax=ax)
+
+            if len(m2) > 1:
+                for pos, d in zip(m2.squeeze().numpy(), dist.numpy()):
+                    plt.text(*pos, f"{d:.2f}", color='red')
+
+            mlflow.log_figure(fig, f"sample_output_e{e:02}.png")
 
             print(
                 f"\nSummary:\n",

@@ -1,8 +1,7 @@
 import argparse
 
-from src.detection.model import CraterDetector
+from src.detection import CraterDetector, train_model
 from src.common.data import inspect_dataset
-from src.detection import create_detection_model, train_model
 
 
 def get_parser():
@@ -10,7 +9,7 @@ def get_parser():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--epochs', type=int, default=20,
                         help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=8,
+    parser.add_argument('--batch_size', type=int, default=32,
                         help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers for training dataloader')
@@ -20,7 +19,7 @@ def get_parser():
                         help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
-    parser.add_argument('--dataset', type=str, default="data/dataset_crater_detection_40k.h5",
+    parser.add_argument('--dataset', type=str, default="data/dataset_crater_detection_80k.h5",
                         help='Dataset path')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='Momentum input for SGD optimizer.')
