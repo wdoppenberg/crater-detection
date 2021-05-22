@@ -278,10 +278,10 @@ class CoplanarInvariants:
                 key = out.get_pattern()
 
                 if sort_ij:
-                    ij_idx = np.abs(key[:, :3]).argmin(1)
+                    ij_idx = np.abs(key[..., :3]).argmin(1)
                     key = np.concatenate((
-                        shift_nd(key[:, :3], -ij_idx),
-                        shift_nd(key[:, 3:6], -ij_idx),
+                        shift_nd(key[..., :3], -ij_idx),
+                        shift_nd(key[..., 3:6], -ij_idx),
                         key[:, [-1]]
                     ),
                         axis=-1

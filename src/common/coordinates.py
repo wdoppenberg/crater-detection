@@ -175,7 +175,7 @@ class OrbitingBodyBase:
             3x1 position vector of camera.
         """
         if position is None:
-            self.set_random_position()
+            self.set_coordinates(0, 0, 250)
         else:
             # Ensure 3x1 vector
             if len(position.shape) == 1:

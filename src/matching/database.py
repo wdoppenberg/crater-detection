@@ -11,9 +11,11 @@ from sklearn.neighbors import radius_neighbors_graph
 import src.common.constants as const
 from common.conics import crater_camera_homography
 from common.robbins import load_craters
+
 from src.common.camera import camera_matrix
 from src.common.conics import conic_matrix, conic_center
 from src.common.coordinates import nadir_attitude
+
 from src.matching.position_estimation import calculate_position
 from src.matching.projective_invariants import CoplanarInvariants
 from src.matching.utils import get_cliques_by_length, shift_nd
@@ -295,21 +297,13 @@ class CraterDatabase:
                        A_detections,
                        T,
                        K,
-                       batch_size=1000,
-                       top_n=3,
-                       sigma_pix=1,
-                       return_all_positions=False,
-                       filter_outliers=False
+                       **kwargs
                        ):
         return calculate_position(A_detections,
                                   self,
                                   T=T,
                                   K=K,
-                                  batch_size=batch_size,
-                                  top_n=top_n,
-                                  sigma_pix=sigma_pix,
-                                  return_all_positions=return_all_positions,
-                                  filter_outliers=filter_outliers
+                                  **kwargs
                                   )
 
     def __getitem__(self, item):

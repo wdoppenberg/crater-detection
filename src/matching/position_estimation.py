@@ -1,4 +1,6 @@
 from functools import partial
+from itertools import combinations
+from typing import Union
 
 import numpy as np
 import numpy.linalg as LA
@@ -6,7 +8,7 @@ from numba import njit
 
 import src.common.constants as const
 from src.common.conics import scale_det, conic_center, ellipse_axes
-from src.common.coordinates import ENU_system
+from src.common.coordinates import ENU_system, OrbitingBodyBase
 from src.matching import CoplanarInvariants
 
 
@@ -71,8 +73,8 @@ def derive_position(A_craters, r_craters, C_craters, T_CM, K, use_scale=False):
     A = (S.T @ T_ME @ B_craters).reshape(-1, 3)
 
     if use_scale:
-        scale_i = (vec(S.T @ C_craters @ S).transpose(0, 2, 1) @ vec(S.T @ T_ME @ B_craters @ T_EM @ S)) \
-                  / (vec(S.T @ C_craters @ S).transpose(0, 2, 1) @ vec(S.T @ C_craters @ S))
+        scale_i = (vec(S.T @ C_craters @ S).transpose((0, 2, 1)) @ vec(S.T @ T_ME @ B_craters @ T_EM @ S)) \
+                  / (vec(S.T @ C_craters @ S).transpose((0, 2, 1)) @ vec(S.T @ C_craters @ S))
         b = (S.T @ T_ME @ B_craters @ r_craters - scale_i * S.T @ C_craters @ k).reshape(-1, 1)
     else:
         b = (S.T @ T_ME @ B_craters @ r_craters).reshape(-1, 1)
@@ -87,7 +89,7 @@ def derive_position(A_craters, r_craters, C_craters, T_CM, K, use_scale=False):
 
 
 @njit
-def pos_lsq_broadcast(A, b):
+def pos_lsq_broadcast(A: np.ndarray, b: np.ndarray):
     out = np.empty((A.shape[0], 3, 1))
 
     for ii in range(A.shape[0]):
@@ -97,19 +99,34 @@ def pos_lsq_broadcast(A, b):
     return out
 
 
-def calculate_position(A_detections,
+def ransac_position(estimations: np.ndarray, max_deviation: float = 3):
+    if len(estimations) <= 3:
+        return None
+    idxs = np.arange(len(estimations))
+    np.random.shuffle(idxs)
+    for idx in idxs:
+        close = LA.norm(estimations[idx] - estimations, axis=(1, 2)) < max_deviation
+        close = LA.norm(estimations[close].mean(0) - estimations, axis=(1, 2)) < max_deviation
+        if close.sum() > np.round(0.3*len(estimations)):
+            return np.where(close)
+    return None
+
+
+def calculate_position(A_detections: np.ndarray,
                        database,
-                       T,
-                       K,
-                       batch_size=1000,
-                       top_n=3,
-                       sigma_pix=1,
-                       max_matched_triads=30,
-                       max_alt=500,
-                       return_all_positions=False,
-                       filter_outliers=False
+                       T: np.ndarray,
+                       K: np.ndarray,
+                       batch_size: int = 1000,
+                       top_n: int = 3,
+                       sigma_pix: float = 3,
+                       max_deviation: float = 3,
+                       max_alt: float = 500,
+                       primary_body_radius: float = const.RMOON,
+                       return_n_matches: bool = False
                        ):
-    # top_n = [top_n] if top_n == 1 else top_n
+
+    if len(A_detections) < 4:
+        return None
 
     # Generate matchable features to query the database index with
     crater_triads, key = next(CoplanarInvariants.match_generator(
@@ -170,41 +187,35 @@ def calculate_position(A_detections,
 
         sigma = (0.85 / np.sqrt(a_i * b_i)) * sigma_pix
 
-        mask = np.logical_and(
-            np.logical_and.reduce(((d / sigma) ** 2) <= 13.276, axis=1),
-            LA.norm(match_est_pos, axis=(-2, -1)) < const.RMOON + max_alt,
-            LA.norm(match_est_pos, axis=(-2, -1)) > const.RMOON
-        )
+        norms = LA.norm(match_est_pos, axis=(-2, -1))
+
+        mask = np.logical_and.reduce(((d / sigma) ** 2) <= 13.276, axis=1) & \
+               (primary_body_radius < norms) & \
+               (norms < (primary_body_radius + max_alt))
 
         confirmations[i] = mask
 
     n_idx, b_idx = np.where(confirmations)
 
     if len(n_idx) == 0:
-        return np.full((3, 1), -1)
+        return None
 
-    est_r = derive_position(A_projected_store[n_idx, b_idx].reshape(-1, 3, 3),
-                            r_match[n_idx, b_idx].reshape(-1, 3, 1),
-                            C_match[n_idx, b_idx].reshape(-1, 3, 3),
-                            T,
-                            K)
+    ransac_idx = ransac_position(position_store[n_idx, b_idx], max_deviation=max_deviation)
 
-    if filter_outliers:
-        inliers = np.logical_and.reduce(
-            (position_store[n_idx, b_idx] - est_r) < 1.5 * np.std(position_store[n_idx, b_idx], axis=0),
-            axis=1
-        ).squeeze()
+    if ransac_idx is None:
+        if return_n_matches:
+            return None, None
+        else:
+            return None
 
-        if np.sum(inliers) == 0:
-            return np.full((3, 1), -1)
+    # est_r = derive_position(A_projected_store[n_idx, b_idx][ransac_idx].reshape(-1, 3, 3),
+    #                         r_match[n_idx, b_idx][ransac_idx].reshape(-1, 3, 1),
+    #                         C_match[n_idx, b_idx][ransac_idx].reshape(-1, 3, 3),
+    #                         T,
+    #                         K)
 
-        est_r = derive_position(A_projected_store[n_idx, b_idx][inliers].reshape(-1, 3, 3),
-                                r_match[n_idx, b_idx][inliers].reshape(-1, 3, 1),
-                                C_match[n_idx, b_idx][inliers].reshape(-1, 3, 3),
-                                T,
-                                K)
-
-    if return_all_positions:
-        return est_r, position_store[n_idx, b_idx]
+    if return_n_matches:
+        return position_store[n_idx, b_idx][ransac_idx].mean(0), len(position_store[n_idx, b_idx][ransac_idx])
     else:
-        return est_r
+        return position_store[n_idx, b_idx][ransac_idx].mean(0)
+
