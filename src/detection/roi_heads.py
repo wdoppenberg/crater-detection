@@ -13,14 +13,14 @@ class EllipseRegressor(nn.Module):
     def __init__(self, in_channels=1024, hidden_size=512, out_features=3):
         super().__init__()
 
-        self.fc6 = nn.Linear(in_channels, hidden_size)
-        self.fc7 = nn.Linear(hidden_size, out_features)
+        self.fc1 = nn.Linear(in_channels, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, out_features)
 
     def forward(self, x):
         x = x.flatten(start_dim=1)
 
-        x = torch.sigmoid(self.fc6(x))
-        x = torch.sigmoid(self.fc7(x))
+        x = torch.tanh(self.fc1(x))
+        x = torch.tanh(self.fc2(x))
 
         return x
 
@@ -31,7 +31,7 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle:
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
 
     a, b = ((torch.exp(param) * box_diag / 2).T for param in (d_a, d_b))
-    theta = d_angle * np.pi
+    theta = d_angle * np.pi / 2
     ang_cond1 = torch.cos(theta) >= 0
     ang_cond2 = ~ang_cond1
 
@@ -42,7 +42,7 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle:
 
 
 def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor], multiplier: float = 5.):
+                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor]):
     A_target = torch.cat([o[idxs] for o, idxs in zip(ellipse_matrix_targets, pos_matched_idxs)], dim=0)
     boxes = torch.cat(boxes, dim=0)
 
@@ -58,7 +58,7 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
     loss1 = mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True)
     loss2 = mv_kullback_leibler_divergence(A_target, A_pred, shape_only=True)
 
-    return multiplier * (loss1 + loss2).mean()
+    return (0.5*loss1 + 0.5*loss2).mean()
 
 
 def ellipse_loss_GA(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],

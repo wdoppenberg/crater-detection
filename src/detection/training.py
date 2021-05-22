@@ -91,13 +91,14 @@ class CraterMaskDataset(CraterDataset):
             ymin = pos[0].min()
             ymax = pos[0].max()
 
-            dx = xmax - xmin
-            dy = ymax - ymin
+            if self.box_padding > 0.:
+                dx = xmax - xmin
+                dy = ymax - ymin
 
-            xmin -= (dx*self.box_padding).to(xmin)
-            xmax += (dx*self.box_padding).to(xmax)
-            ymin -= (dy*self.box_padding).to(ymin)
-            ymax += (dy*self.box_padding).to(ymax)
+                xmin -= (dx*self.box_padding).to(xmin)
+                xmax += (dx*self.box_padding).to(xmax)
+                ymin -= (dy*self.box_padding).to(ymin)
+                ymax += (dy*self.box_padding).to(ymax)
 
             boxes[i] = torch.tensor([xmin, ymin, xmax, ymax])
 
@@ -134,7 +135,7 @@ class CraterMaskDataset(CraterDataset):
 
 class CraterEllipseDataset(CraterMaskDataset):
     def __init__(self, **kwargs):
-        super(CraterEllipseDataset, self).__init__(min_area=0, box_padding=0.1, **kwargs)
+        super(CraterEllipseDataset, self).__init__(min_area=0, box_padding=0, **kwargs)
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, target = super(CraterEllipseDataset, self).__getitem__(idx)

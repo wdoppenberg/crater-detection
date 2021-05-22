@@ -297,7 +297,7 @@ def project_crater_centers(r_craters, fov, resolution, T_CM, r_M):
     return (H_Ci @ np.array([0, 0, 1]) / (H_Ci @ np.array([0, 0, 1]))[:, -1][:, None])[:, :2]
 
 
-def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = True):
+def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = True) -> torch.Tensor:
     A1, A2 = map(scale_det, (A1, A2))
     cov1, cov2 = map(lambda arr: -arr[..., :2, :2], (A1, A2))
     m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
@@ -311,6 +311,10 @@ def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_onl
         displacement_term = ((m1 - m2).transpose(-1, -2) @ cov1.inverse() @ (m1 - m2)).squeeze()
 
     return 0.5 * (trace_term + displacement_term - 2 + log_term)
+
+
+def norm_mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor) -> torch.Tensor:
+    return 1 - torch.exp(-mv_kullback_leibler_divergence(A1, A2))
 
 
 def gaussian_angle_distance(A1: torch.Tensor, A2: torch.Tensor):
