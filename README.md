@@ -9,6 +9,10 @@ This repository contains the necessary components to compose a Terrain-Relative 
 
 ![Crater detector](./docs/model-architecture.png)
 
+## Instructions
+
+This repository uses [git LFS](https://docs.github.com/en/github/managing-large-files/versioning-large-files).
+
 ## Dataset creation ([SurRender](https://www.airbus.com/space/space-exploration/SurRenderSoftware.html) server required)
 ```
 usage: create_dataset.py [-h] [--n_train N_TRAIN] [--n_val N_VAL]
@@ -82,3 +86,5 @@ optional arguments:
   --device DEVICE       Device to train model on (`cpu` or `cuda`) (default:
                         cuda)
 ```
+
+
