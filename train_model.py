@@ -23,7 +23,7 @@ def get_parser():
                         help='Dataset path')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='Momentum input for SGD optimizer.')
-    parser.add_argument('--weight_decay', type=float, default=1e-7,
+    parser.add_argument('--weight_decay', type=float, default=0.0005,
                         help='Weight decay input for SGD optimizer.')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to train model on (`cpu` or `cuda`)')

@@ -11,15 +11,14 @@ import torch
 from matplotlib import pyplot as plt
 from scipy.spatial.distance import cdist
 from torch import nn
-from torch.cuda.amp import autocast
 from torch.optim import SGD
-from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm as tq
 
-from src.common.conics import conic_center, ellipse_angle, ellipse_axes, gaussian_angle_distance, plot_conics
+from src.detection.metrics import gaussian_angle_distance
+from src.common.conics import conic_center, plot_conics
 from src.common.data import inspect_dataset
-from src.detection.visualisation import draw_patches
 
 
 class CraterDataset(Dataset):
@@ -95,10 +94,10 @@ class CraterMaskDataset(CraterDataset):
                 dx = xmax - xmin
                 dy = ymax - ymin
 
-                xmin -= (dx*self.box_padding).to(xmin)
-                xmax += (dx*self.box_padding).to(xmax)
-                ymin -= (dy*self.box_padding).to(ymin)
-                ymax += (dy*self.box_padding).to(ymax)
+                xmin -= (dx * self.box_padding).to(xmin)
+                xmax += (dx * self.box_padding).to(xmax)
+                ymin -= (dy * self.box_padding).to(ymin)
+                ymax += (dy * self.box_padding).to(ymax)
 
             boxes[i] = torch.tensor([xmin, ymin, xmax, ymax])
 
@@ -222,8 +221,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
 
     tracked_params = ('momentum', 'weight_decay', 'dampening')
 
-    name = "Ellipse RCNN"
-    name += " | Pretrained" if pretrained else " | Cold Start"
+    name = "Ellipse R-CNN"
 
     run_args = dict(run_name=name)
     if pretrained:
@@ -238,7 +236,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_ellipse_similarity=list(),
+                loss_ellipse=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             ),
@@ -247,7 +245,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 loss_total=list(),
                 loss_classifier=list(),
                 loss_box_reg=list(),
-                loss_ellipse_similarity=list(),
+                loss_ellipse=list(),
                 loss_objectness=list(),
                 loss_rpn_box_reg=list()
             )
@@ -280,7 +278,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                          "loss_total": 0.,
                          "loss_classifier": 0.,
                          "loss_box_reg": 0.,
-                         "loss_ellipse_similarity": 0.,
+                         "loss_ellipse": 0.,
                          "loss_objectness": 0.,
                          "loss_rpn_box_reg": 0
                      })
@@ -288,7 +286,6 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                 images = list(image.to(device) for image in images)
                 targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-                # with autocast():
                 loss_dict = model(images, targets)
 
                 loss = sum(l for l in loss_dict.values())
@@ -317,7 +314,7 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                              "loss_total": 0.,
                              "loss_classifier": 0.,
                              "loss_box_reg": 0.,
-                             "loss_ellipse_similarity": 0.,
+                             "loss_ellipse": 0.,
                              "loss_objectness": 0.,
                              "loss_rpn_box_reg": 0
                          })
@@ -325,7 +322,6 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     images = list(image.to(device) for image in images)
                     targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-                    # with autocast():
                     loss_dict = model(images, targets)
 
                     loss = sum(l for l in loss_dict.values())
@@ -356,7 +352,8 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
                     continue
                 mlflow.log_metric("valid_" + k, mean(v[(e - 1) * len(validation_loader):e * len(validation_loader)]),
                                   step=e)
-            scheduler.step(mean(run_metrics["valid"]["loss_total"][(e - 1) * len(validation_loader):e * len(validation_loader)]))
+            scheduler.step(
+                mean(run_metrics["valid"]["loss_total"][(e - 1) * len(validation_loader):e * len(validation_loader)]))
 
             state_dict = {
                 'epoch': e,
@@ -385,7 +382,8 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
             A_craters_target = A_craters_target[matched_idxs]
 
             dist = gaussian_angle_distance(A_craters_target, A_craters_pred)
-            m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A_craters_pred, A_craters_target))
+            m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None],
+                         (A_craters_pred, A_craters_target))
 
             fig, ax = plt.subplots(figsize=(10, 10))
 

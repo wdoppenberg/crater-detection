@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
-from src.common.conics import mv_kullback_leibler_divergence, gaussian_angle_distance
+from src.detection.metrics import mv_kullback_leibler_divergence, gaussian_angle_distance
 from src.common.conics import conic_matrix
 
 
@@ -16,7 +16,7 @@ class EllipseRegressor(nn.Module):
         self.fc1 = nn.Linear(in_channels, hidden_size)
         self.fc2 = nn.Linear(hidden_size, out_features)
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         x = x.flatten(start_dim=1)
 
         x = torch.tanh(self.fc1(x))
@@ -25,7 +25,12 @@ class EllipseRegressor(nn.Module):
         return x
 
 
-def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle: torch.Tensor, boxes: torch.Tensor):
+def postprocess_ellipse_predictor(d_a: torch.Tensor,
+                                  d_b: torch.Tensor,
+                                  d_angle: torch.Tensor,
+                                  boxes: torch.Tensor
+                                  ) -> torch.Tensor:
+
     box_diag = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
     cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
@@ -42,7 +47,7 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor, d_b: torch.Tensor, d_angle:
 
 
 def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor]):
+                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor]) -> torch.Tensor:
     A_target = torch.cat([o[idxs] for o, idxs in zip(ellipse_matrix_targets, pos_matched_idxs)], dim=0)
     boxes = torch.cat(boxes, dim=0)
 
@@ -62,7 +67,7 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
 
 
 def ellipse_loss_GA(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
-                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor]):
+                     pos_matched_idxs: List[torch.Tensor], boxes: List[torch.Tensor]) -> torch.Tensor:
     A_target = torch.cat([o[idxs] for o, idxs in zip(ellipse_matrix_targets, pos_matched_idxs)], dim=0)
     boxes = torch.cat(boxes, dim=0)
 
@@ -91,7 +96,7 @@ class EllipseRoIHeads(RoIHeads):
         self.ellipse_predictor = ellipse_predictor
         self.ellipse_loss = ellipse_loss
 
-    def has_ellipse_reg(self):
+    def has_ellipse_reg(self) -> bool:
         if self.ellipse_roi_pool is None:
             return False
         if self.ellipse_head is None:
@@ -101,12 +106,12 @@ class EllipseRoIHeads(RoIHeads):
         return True
 
     def forward(self,
-                features,  # type: Dict[str, torch.Tensor]
-                proposals,  # type: List[torch.Tensor]
-                image_shapes,  # type: List[Tuple[int, int]]
-                targets=None  # type: Optional[List[Dict[str, torch.Tensor]]]
-                ):
-        # type: (...) -> Tuple[List[Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]
+                features: Dict[str, torch.Tensor],
+                proposals: List[torch.Tensor],
+                image_shapes: List[Tuple[int, int]],
+                targets: Optional[List[Dict[str, torch.Tensor]]] = None
+                ) -> Tuple[List[Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]:
+
         if targets is not None:
             for t in targets:
                 floating_point_types = (torch.float, torch.double, torch.half)
@@ -169,7 +174,7 @@ class EllipseRoIHeads(RoIHeads):
             else:
                 raise Exception("Expected ellipse_roi_pool to be not None")
 
-            loss_ellipse_offsets = {}
+            loss_ellipse_regressor = {}
             if self.training:
                 assert targets is not None
                 assert pos_matched_idxs is not None
@@ -179,8 +184,8 @@ class EllipseRoIHeads(RoIHeads):
                 rcnn_loss_ellipse = self.ellipse_loss(
                     ellipse_shapes_normalised, ellipse_matrix_targets, pos_matched_idxs, ellipse_proposals
                 )
-                loss_ellipse_offsets = {
-                    "loss_ellipse_similarity": rcnn_loss_ellipse
+                loss_ellipse_regressor = {
+                    "loss_ellipse": rcnn_loss_ellipse
                 }
             else:
                 ellipses_per_image = [l.shape[0] for l in labels]
@@ -191,6 +196,6 @@ class EllipseRoIHeads(RoIHeads):
                     d_angle = e_l[:, 2]
                     r["ellipse_matrices"] = postprocess_ellipse_predictor(d_a, d_b, d_angle, box)
 
-            losses.update(loss_ellipse_offsets)
+            losses.update(loss_ellipse_regressor)
 
         return result, losses

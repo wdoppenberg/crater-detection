@@ -36,7 +36,7 @@ class CraterDetector(GeneralizedRCNN):
                  box_fg_iou_thresh=0.5, box_bg_iou_thresh=0.5,
                  box_batch_size_per_image=512, box_positive_fraction=0.25,
                  bbox_reg_weights=None,
-                 # Ellipse
+                 # Ellipse regressor
                  ellipse_roi_pool=None,
                  ellipse_head=None,
                  ellipse_predictor=None
@@ -139,6 +139,7 @@ class CraterDetector(GeneralizedRCNN):
             box_batch_size_per_image, box_positive_fraction,
             bbox_reg_weights,
             box_score_thresh, box_nms_thresh, box_detections_per_img,
+            # Ellipse
             ellipse_roi_pool=ellipse_roi_pool,
             ellipse_head=ellipse_head,
             ellipse_predictor=ellipse_predictor
