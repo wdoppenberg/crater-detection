@@ -11,7 +11,7 @@ def get_parser():
                         help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32,
                         help='Batch size')
-    parser.add_argument('--num_workers', type=int, default=4,
+    parser.add_argument('--num_workers', type=int, default=2,
                         help='Number of workers for training dataloader')
     parser.add_argument('--learning_rate', type=float, default=0.01,
                         help='Learning rate', nargs='?')

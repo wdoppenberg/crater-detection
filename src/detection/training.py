@@ -28,19 +28,17 @@ class CraterDataset(Dataset):
                  ):
         self.file_path = file_path
         self.group = group
-        self.dataset = None
 
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.dataset is None:
-            self.dataset = h5py.File(self.file_path, 'r')
+        with h5py.File(self.file_path, 'r') as dataset:
 
-        image = self.dataset[self.group]["images"][idx]
-        masks = self.dataset[self.group]["masks"][idx]
+            image = dataset[self.group]["images"][idx]
+            masks = dataset[self.group]["masks"][idx]
 
-        image = torch.as_tensor(image)
-        masks = torch.as_tensor(masks, dtype=torch.float32)
+            image = torch.as_tensor(image)
+            masks = torch.as_tensor(masks, dtype=torch.float32)
 
-        return image, masks
+            return image, masks
 
     def random(self):
         return self.__getitem__(
@@ -50,10 +48,6 @@ class CraterDataset(Dataset):
     def __len__(self):
         with h5py.File(self.file_path, 'r') as f:
             return len(f[self.group]['images'])
-
-    def __del__(self):
-        if self.dataset is not None:
-            self.dataset.close()
 
 
 def collate_fn(batch: Iterable):
@@ -69,11 +63,9 @@ class CraterMaskDataset(CraterDataset):
     def __getitem__(self, idx: ...) -> Tuple[torch.Tensor, Dict]:
         image, mask = super(CraterMaskDataset, self).__getitem__(idx)
 
-        if self.dataset is None:
-            self.dataset = h5py.File(self.file_path, 'r')
-
-        position = torch.as_tensor(self.dataset[self.group]["position"][idx], dtype=torch.float64)
-        attitude = torch.as_tensor(self.dataset[self.group]["attitude"][idx], dtype=torch.float64)
+        with h5py.File(self.file_path, 'r') as dataset:
+            position = torch.as_tensor(dataset[self.group]["position"][idx], dtype=torch.float64)
+            attitude = torch.as_tensor(dataset[self.group]["attitude"][idx], dtype=torch.float64)
 
         mask: torch.Tensor = mask.int()
 
@@ -140,13 +132,10 @@ class CraterEllipseDataset(CraterMaskDataset):
         image, target = super(CraterEllipseDataset, self).__getitem__(idx)
         target.pop("masks")
 
-        if self.dataset is None:
-            self.dataset = h5py.File(self.file_path, 'r')
-
-        start_idx = self.dataset[self.group]["craters/crater_list_idx"][idx]
-        end_idx = self.dataset[self.group]["craters/crater_list_idx"][idx + 1]
-
-        A_craters = self.dataset[self.group]["craters/A_craters"][start_idx:end_idx]
+        with h5py.File(self.file_path, 'r') as dataset:
+            start_idx = dataset[self.group]["craters/crater_list_idx"][idx]
+            end_idx = dataset[self.group]["craters/crater_list_idx"][idx + 1]
+            A_craters = dataset[self.group]["craters/A_craters"][start_idx:end_idx]
 
         boxes = target["boxes"]
 
@@ -166,7 +155,7 @@ class CraterEllipseDataset(CraterMaskDataset):
         return image, target
 
 
-def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 4) -> \
+def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 2) -> \
         Tuple[DataLoader, DataLoader, DataLoader]:
     train_dataset = CraterEllipseDataset(file_path=dataset_path, group="training")
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn,
@@ -184,9 +173,8 @@ def get_dataloaders(dataset_path: str, batch_size: int = 10, num_workers: int = 
 
 
 def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr=1e-2, run_id: str = None,
-                scheduler=None, batch_size: int = 10, momentum: float = 0.9, weight_decay: float = 1e-7,
+                scheduler=None, batch_size: int = 32, momentum: float = 0.9, weight_decay: float = 0.0005,
                 num_workers: int = 4, device=None) -> None:
-    train_loader, validation_loader, test_loader = get_dataloaders(dataset_path, batch_size, num_workers)
 
     pretrained = run_id is not None
 
@@ -266,6 +254,8 @@ def train_model(model: nn.Module, num_epochs: int, dataset_path: str, initial_lr
             mlflow.log_figure(inspect_dataset(dataset_path, return_fig=True, summary=False), f"dataset_inspection.png")
 
         for e in range(start_e, num_epochs + start_e):
+            train_loader, validation_loader, test_loader = get_dataloaders(dataset_path, batch_size, num_workers)
+
             print(f'\n-----Epoch {e} started-----\n')
 
             since = time.time()
