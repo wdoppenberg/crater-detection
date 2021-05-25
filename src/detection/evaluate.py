@@ -1,6 +1,3 @@
-import time
-from itertools import repeat
-
 import numpy as np
 import torch
 from astropy.coordinates import cartesian_to_spherical
@@ -119,7 +116,7 @@ class Evaluator:
                  })
 
         precision = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
-        recall =torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
+        recall = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
         f1 = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
         iou = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
         dist = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
@@ -165,22 +162,29 @@ class Evaluator:
         precision, recall, f1, iou, dist = map(lambda x: x.mean((0, 1)), (precision, recall, f1, iou, dist))
         return precision, recall, f1, iou, dist, confidence_thresholds
 
-    def precision_recall_plot(self, iou_threshold=0.5, confidence_thresholds=None):
-        precision, recall, f1, iou, dist, confidence_thresholds = self.performance_metrics(iou_threshold,
-                                                                                           confidence_thresholds)
-
+    def precision_recall_plot(self, iou_thresholds=None, confidence_thresholds=None):
         fig, ax = plt.subplots(figsize=(10, 5))
 
-        R = torch.cat((torch.ones(1), recall.cpu(), torch.zeros(1)))
-        P = torch.cat((torch.zeros(1), precision.cpu(), torch.ones(1)))
+        if iou_thresholds is None:
+            iou_thresholds = torch.arange(start=0.5, end=0.99, step=0.10)
 
-        ax.fill_between(R, P, alpha=0.3, step='pre', color='orange')
-        ax.step(R, P)
+        for iou_threshold in iou_thresholds:
+            precision, recall, f1, iou, dist, confidence_thresholds = self.performance_metrics(
+                iou_threshold=iou_threshold)
+
+            R = torch.cat((torch.ones(1), recall.cpu(), torch.zeros(1)))
+            P = torch.cat((torch.zeros(1), precision.cpu(), torch.ones(1)))
+
+            AUC = torch.trapz(R, P)
+
+            ax.fill_between(R, P, alpha=0.2, step='pre')
+            ax.step(R, P, label=f'IoU>{iou_threshold:.2f} | AUC={AUC:.3f}')
 
         ax.set_xlabel('Recall')
         ax.set_ylabel('Precision')
         ax.set_xlim((0, 1.05))
         ax.set_ylim((0, 1.05))
+        ax.legend()
 
         return fig
 
