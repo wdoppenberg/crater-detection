@@ -58,7 +58,8 @@ def get_matched_idxs(pred: Union[Dict, torch.Tensor], target: Union[Dict, torch.
             return torch.zeros(0).to(pred), torch.zeros(0, dtype=torch.bool).to(pred)
 
 
-def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold=0.5, min_class_score=0.75) -> Tuple[float, float, float, float, float]:
+def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold: float = 0.5, confidence_threshold: float = 0.75,
+                      distance_threshold: float = None) -> Tuple[float, float, float, float, float]:
     """
     Calculates Precision, Recall, F1, IoU, and Gaussian Angle Distance for a single image.
 
@@ -70,8 +71,10 @@ def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold=0.5, min
         Target dictionary
     iou_threshold
         Minimum IoU to consider prediction and target to be matched
-    min_class_score
+    confidence_threshold
         Minimum prediction class score
+    distance_threshold
+        (default: None) If given, use to add another condition for determining TP, FP, FN
 
     Returns
     -------
@@ -79,34 +82,52 @@ def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold=0.5, min
     """
     scores = pred_dict["scores"]
 
-    pred_dict = {k: v[scores > min_class_score] for k, v in pred_dict.items()}
-
     boxes_pred = pred_dict["boxes"]
+    boxes_pred_conf = boxes_pred[scores >= confidence_threshold]
     boxes_target = target_dict["boxes"]
 
-    if len(boxes_pred) > 0 and len(boxes_target) > 0:
+    if len(boxes_pred_conf) > 0 and len(boxes_target) > 0:
         A_pred = pred_dict["ellipse_matrices"]
+        A_pred_conf = A_pred[scores >= confidence_threshold]
         A_target = target_dict["ellipse_matrices"]
 
-        matched_idxs, matched, iou_list = get_matched_idxs(boxes_pred, boxes_target, iou_threshold=iou_threshold,
+        matched_idxs, matched, iou_list = get_matched_idxs(boxes_pred_conf, boxes_target, iou_threshold=iou_threshold,
                                                            return_iou=True)
 
-        A_pred_true = A_pred[matched]
-        A_matched = A_target[matched_idxs][matched]
-
-        TP = len(A_pred_true)
-        FP = len(A_pred) - TP
-        FN = len(A_target) - TP
-
-        precision, recall = precision_recall(TP, FP, FN)
-        f1 = f1_score(precision, recall)
-
-        if len(A_matched) > 0:
-            dist = gaussian_angle_distance(A_pred_true, A_matched).mean().item()
+        if len(A_target[matched_idxs][matched]) > 0:
+            dist = gaussian_angle_distance(A_pred_conf, A_target[matched_idxs]).mean().item()
             iou = iou_list.mean().item()
         else:
             dist = 0.
             iou = 0.
+
+        if distance_threshold is not None:
+            matched = matched & (gaussian_angle_distance(A_pred_conf, A_target[matched_idxs]) <= distance_threshold)
+
+        A_pred_true = A_pred_conf[matched]
+        A_matched = A_target[matched_idxs][matched]
+
+        TP = len(A_pred_true)
+        FP = len(A_pred_conf) - TP
+
+        matched_idxs_fn, matched_FN = get_matched_idxs(boxes_pred[scores < confidence_threshold],
+                                                           boxes_target, iou_threshold=iou_threshold)
+
+        if distance_threshold is not None:
+            if len(matched_idxs_fn) > 0 and matched_FN.sum() > 0:
+                matched_FN = matched_FN & (
+                        gaussian_angle_distance(A_pred[scores < confidence_threshold],
+                                                                   A_target[matched_idxs_fn]) <= distance_threshold)
+            else:
+                matched_FN = None
+        else:
+            matched_FN = None
+
+        FN = len(matched_idxs_fn[matched_FN])
+
+        precision, recall = precision_recall(TP, FP, FN)
+        f1 = f1_score(precision, recall)
+
 
         return precision, recall, f1, iou, dist
     else:
@@ -166,7 +187,7 @@ def f1_score(precision: float, recall: float) -> float:
         return 0.
 
 
-def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = True) -> torch.Tensor:
+def mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor, shape_only: bool = False) -> torch.Tensor:
     A1, A2 = map(scale_det, (A1, A2))
     cov1, cov2 = map(lambda arr: -arr[..., :2, :2], (A1, A2))
     m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))

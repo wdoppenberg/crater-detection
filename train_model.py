@@ -16,7 +16,9 @@ def get_parser():
     parser.add_argument('--learning_rate', type=float, default=0.01,
                         help='Learning rate', nargs='?')
     parser.add_argument('--backbone', type=str, default="resnet50",
-                        help='Model backbone ResNet type.')
+                        choices=['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152',
+                                 'resnext50_32x4d', 'resnext101_32x8d',
+                                 'wide_resnet50_2', 'wide_resnet101_2'], help='Model backbone ResNet type.')
     parser.add_argument('--run_id',  type=str, default=None, nargs='?',
                         help='Resume from MLflow run checkpoint')
     parser.add_argument('--dataset', type=str, default="data/dataset_crater_detection_80k.h5",
@@ -27,6 +29,8 @@ def get_parser():
                         help='Weight decay input for SGD optimizer.')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to train model on (`cpu` or `cuda`)')
+    parser.add_argument('--ellipse_loss_metric', type=str, default='gaussian-angle',
+                        choices=['gaussian-angle', 'kullback-leibler'], help='Ellipse loss metric for EllipseRoIHeads.')
 
     return parser
 
@@ -37,7 +41,7 @@ if __name__ == "__main__":
 
     data_header = inspect_dataset(args.dataset, plot=False)
 
-    model = CraterDetector(backbone_name=args.backbone)
+    model = CraterDetector(backbone_name=args.backbone, ellipse_loss_metric=args.ellipse_loss_metric)
 
     train_model(model,
                 num_epochs=args.epochs,

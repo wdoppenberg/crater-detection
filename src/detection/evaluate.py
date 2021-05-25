@@ -1,4 +1,5 @@
 import time
+from itertools import repeat
 
 import numpy as np
 import torch
@@ -8,15 +9,14 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm as tq
 
 from common import constants as const
-from common.conics import plot_conics
-from detection.metrics import detection_metrics
+from common.conics import plot_conics, conic_center
+from detection.metrics import detection_metrics, get_matched_idxs, gaussian_angle_distance
 from detection.training import CraterEllipseDataset, collate_fn
 from src import CraterDetector
 
 
 class Evaluator:
-    def __init__(self, model=None, device="cpu", dataset_path="data/dataset_crater_detection.h5",
-                 batch_size=32):
+    def __init__(self, model=None, device="cpu", dataset_path="data/dataset_crater_detection.h5"):
         if model is None:
             self._model = CraterDetector()
             self._model.load_state_dict(torch.load("blobs/CraterRCNN.pth"))
@@ -35,10 +35,9 @@ class Evaluator:
         self._model.to(self.device)
 
         self.ds = CraterEllipseDataset(file_path=dataset_path, group="test")
-        self.loader = DataLoader(self.ds, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate_fn)
 
     @torch.no_grad()
-    def make_grid(self, n_rows=3, n_cols=4, min_score=0.6):
+    def make_grid(self, n_rows=3, n_cols=4, min_class_score=0.75):
         i = 1
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
 
@@ -46,17 +45,38 @@ class Evaluator:
 
         for row in range(n_rows):
             for col in range(n_cols):
-                images, target = next(iter(loader))
+                images, targets = next(iter(loader))
                 images = list(image.to(self.device) for image in images)
-                A_craters_pred = self._model.get_conics(images, min_score=min_score)
+                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
 
-                A_craters_target = target[0]["ellipse_matrices"]
-                position = target[0]["position"]
-                r, lat, long = cartesian_to_spherical(*position.numpy())
+                pred = self._model(images)
+
+                scores = pred[0]["scores"]
+
+                A_pred = pred[0]["ellipse_matrices"][scores > min_class_score]
+
+                matched_idxs, matched = get_matched_idxs(pred[0]["boxes"][scores > min_class_score],
+                                                         targets[0]["boxes"])
+
+                A_target = targets[0]["ellipse_matrices"]
+                if len(matched_idxs) > 0:
+                    A_matched = A_target[matched_idxs]
+                else:
+                    A_matched = torch.zeros((0, 3, 3))
+                position = targets[0]["position"]
+                r, lat, long = cartesian_to_spherical(*position.cpu().numpy())
+
+                dist = gaussian_angle_distance(A_matched[matched], A_pred[matched])
+                m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None],
+                             (A_matched[matched], A_pred[matched]))
+
+                lat = np.degrees(lat.value)[0]
+                long = np.degrees(long.value)[0]
+                long -= 360 if long > 180 else 0
 
                 textstr = '\n'.join((
-                    rf'$\varphi={np.degrees(lat.value)[0]:.1f}^o$',
-                    rf'$\lambda={np.degrees(long.value)[0]:.1f}^o$',
+                    rf'$\varphi={lat:.1f}^o$',
+                    rf'$\lambda={long:.1f}^o$',
                     rf'$h={r.value[0] - const.RMOON:.0f}$ km',
                 ))
 
@@ -64,12 +84,17 @@ class Evaluator:
                 axes[row, col].axis("off")
                 axes[row, col].set_title(i)
 
-                plot_conics(A_craters_target, ax=axes[row, col], rim_color='cyan')
-                plot_conics(A_craters_pred.cpu(), ax=axes[row, col])
+                plot_conics(A_target.cpu(), ax=axes[row, col], rim_color='cyan')
+                plot_conics(A_pred.cpu()[matched], ax=axes[row, col], rim_color='red')
+                plot_conics(A_pred.cpu()[~matched], ax=axes[row, col], rim_color='yellow')
 
                 props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
                 axes[row, col].text(0.05, 0.95, textstr, transform=axes[row, col].transAxes, fontsize=14,
                                     verticalalignment='top', bbox=props)
+
+                if len(m2) > 2:
+                    for pos, d in zip(m2.squeeze().cpu().numpy(), dist.cpu().numpy()):
+                        axes[row, col].text(*pos, f"{d:.2f}", color='white')
 
                 i += 1
         fig.tight_layout()
@@ -77,8 +102,14 @@ class Evaluator:
         return fig
 
     @torch.no_grad()
-    def get_scores(self, iou_threshold=0.5, min_class_score=0.75):
-        bar = tq(self.loader, desc=f"Testing",
+    def performance_metrics(self, iou_threshold=0.5, confidence_thresholds=None, distance_threshold=None):
+
+        if confidence_thresholds is None:
+            confidence_thresholds = torch.arange(start=0.05, end=0.99, step=0.05).to(self.device)
+
+        loader = DataLoader(self.ds, batch_size=32, shuffle=True, num_workers=0, collate_fn=collate_fn)
+
+        bar = tq(loader, desc=f"Testing",
                  postfix={
                      "IoU": 0.,
                      "GA_distance": 0.,
@@ -87,74 +118,77 @@ class Evaluator:
                      "f1_score": 0.
                  })
 
-        precision_list = torch.zeros(len(self.loader), device=self.device)
-        recall_list = torch.zeros(len(self.loader), device=self.device)
-        f1_list = torch.zeros(len(self.loader), device=self.device)
-        iou_list = torch.zeros(len(self.loader), device=self.device)
-        dist_list = torch.zeros(len(self.loader), device=self.device)
+        precision = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
+        recall =torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
+        f1 = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
+        iou = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
+        dist = torch.zeros((len(loader), loader.batch_size, len(confidence_thresholds)), device=self.device)
 
         for batch, (images, targets_all) in enumerate(bar):
             images = list(image.to(self.device) for image in images)
             targets_all = [{k: v.to(self.device) for k, v in t.items()} for t in targets_all]
 
             pred_all = self._model(images)
-            batch_iou, batch_dist, batch_precision, batch_recall, batch_f1 = torch.zeros(len(pred_all)), torch.zeros(
-                len(pred_all)), torch.zeros(len(pred_all)), torch.zeros(len(pred_all)), torch.zeros(len(pred_all))
 
             for i, (pred, targets) in enumerate(zip(pred_all, targets_all)):
-                batch_precision[i], batch_recall[i], batch_f1[i], batch_iou[i], batch_dist[i] = detection_metrics(pred,
-                                                                                                                  targets,
-                                                                                                                  iou_threshold=iou_threshold)
-
-            batch_iou, batch_dist, batch_precision, batch_recall, batch_f1 = map(lambda x: x[x != 0].mean().item(),
-                                                                                 (batch_iou, batch_dist,
-                                                                                  batch_precision, batch_recall,
-                                                                                  batch_f1
-                                                                                  ))
+                for j, confidence_threshold in enumerate(confidence_thresholds):
+                    precision[batch, i, j], recall[batch, i, j], f1[batch, i, j], \
+                    iou[batch, i, j], dist[batch, i, j] = detection_metrics(pred,
+                                                                            targets,
+                                                                            iou_threshold=iou_threshold,
+                                                                            confidence_threshold=confidence_threshold,
+                                                                            distance_threshold=distance_threshold)
 
             postfix = dict(
-                IoU=batch_iou,
-                GA_distance=batch_dist,
-                precision=batch_precision,
-                recall=batch_recall,
-                f1_score=batch_f1
+                IoU=iou[batch].mean().item(),
+                GA_distance=dist[batch].mean().item(),
+                precision=precision[batch].mean().item(),
+                recall=recall[batch].mean().item(),
+                f1_score=f1[batch].mean().item()
             )
             bar.set_postfix(ordered_dict=postfix)
 
-            iou_list[batch] = batch_iou
-            dist_list[batch] = batch_dist
-            precision_list[batch] = batch_precision
-            recall_list[batch] = batch_recall
-            f1_list[batch] = batch_f1
-
         del images, targets_all
 
-        return iou_list, dist_list, precision_list, recall_list, f1_list
+        precision_out = torch.zeros(len(confidence_thresholds))
+        recall_out = torch.zeros(len(confidence_thresholds))
+        f1_out = torch.zeros(len(confidence_thresholds))
+        iou_out = torch.zeros(len(confidence_thresholds))
+        dist_out = torch.zeros(len(confidence_thresholds))
 
-    def iou_sweep(self, iou_range=(0.5, 0.95), steps=10):
-        iou, dist, precision, recall, f1, iou_thresholds = torch.zeros(steps, device=self.device), \
-                                                           torch.zeros(steps, device=self.device), \
-                                                           torch.zeros(steps, device=self.device), \
-                                                           torch.zeros(steps, device=self.device), \
-                                                           torch.zeros(steps, device=self.device), \
-                                                           torch.zeros(steps, device=self.device)
+        for i in range(len(confidence_thresholds)):
+            precision_out[i], recall_out[i], f1_out[i], iou_out[i], dist_out[i] = map(
+                lambda x: x[..., i][x[..., i] > 0.].mean(),
+                (precision, recall, f1, iou, dist)
+            )
 
-        for i, iou_threshold in enumerate(torch.linspace(0.5, 0.95, 10)):
-            iou_thresholds[i] = iou_threshold
-            iou_list, dist_list, precision_list, recall_list, f1_list = self.get_scores(iou_threshold=iou_threshold)
-            iou[i], dist[i], precision[i], recall[i], f1[i] = iou_list.mean(), dist_list.mean(), \
-                                                              precision_list.mean(), recall_list.mean(), f1_list.mean()
-            time.sleep(1)
-            print(f"\n[IoU threshold: {iou_threshold:.2f}]\n\tIoU: {iou[i]:.3f}, GA distance: {dist[i]:.3f}, "
-                  f"AP: {precision[i]:.1%}, Recall: {recall[i]:.1%}, F1 score: {f1[i]:.3f}\n")
+        precision, recall, f1, iou, dist = map(lambda x: x.mean((0, 1)), (precision, recall, f1, iou, dist))
+        return precision, recall, f1, iou, dist, confidence_thresholds
 
-        return iou, dist, precision, recall, f1, iou_thresholds
+    def precision_recall_plot(self, iou_threshold=0.5, confidence_thresholds=None):
+        precision, recall, f1, iou, dist, confidence_thresholds = self.performance_metrics(iou_threshold,
+                                                                                           confidence_thresholds)
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        R = torch.cat((torch.ones(1), recall.cpu(), torch.zeros(1)))
+        P = torch.cat((torch.zeros(1), precision.cpu(), torch.ones(1)))
+
+        ax.fill_between(R, P, alpha=0.3, step='pre', color='orange')
+        ax.step(R, P)
+
+        ax.set_xlabel('Recall')
+        ax.set_ylabel('Precision')
+        ax.set_xlim((0, 1.05))
+        ax.set_ylim((0, 1.05))
+
+        return fig
 
 
 if __name__ == "__main__":
     ev = Evaluator(device="cuda")
 
-    ev.make_grid()
-    plt.show()
-
-    ev.iou_sweep()
+    # fig = ev.make_grid()
+    # plt.show()
+    # fig.savefig("output/detection_mosaic.png")
+    ev.performance_metrics()

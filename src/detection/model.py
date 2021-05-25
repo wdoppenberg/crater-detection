@@ -39,7 +39,8 @@ class CraterDetector(GeneralizedRCNN):
                  # Ellipse regressor
                  ellipse_roi_pool=None,
                  ellipse_head=None,
-                 ellipse_predictor=None
+                 ellipse_predictor=None,
+                 ellipse_loss_metric="gaussian-angle"
                  ):
 
         backbone = resnet_fpn_backbone(backbone_name, pretrained=True, trainable_layers=5)
@@ -142,7 +143,8 @@ class CraterDetector(GeneralizedRCNN):
             # Ellipse
             ellipse_roi_pool=ellipse_roi_pool,
             ellipse_head=ellipse_head,
-            ellipse_predictor=ellipse_predictor
+            ellipse_predictor=ellipse_predictor,
+            ellipse_loss_metric=ellipse_loss_metric
         )
 
         if image_mean is None:
@@ -154,6 +156,7 @@ class CraterDetector(GeneralizedRCNN):
         super().__init__(backbone, rpn, roi_heads, transform)
 
     @torch.no_grad()
+    @torch.jit.ignore
     def get_conics(self, images: torch.Tensor, min_score=0.75, return_list=False):
         if self.training:
             raise RuntimeError("Set the model to eval mode.")

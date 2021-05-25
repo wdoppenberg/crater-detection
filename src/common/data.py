@@ -143,8 +143,10 @@ def make_dataset(n_training,
 
 def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_range=(0, 1), return_fig=False):
     with h5py.File(dataset_path) as hf:
-        images = hf['training/images'][:]
-        masks = hf['training/masks'][:]
+        idx = np.random.choice(np.arange(len(hf['training/images'])), n_inspect)
+        idx = np.sort(idx)
+        images = hf['training/images'][idx]
+        masks = hf['training/masks'][idx]
         header = hf["header"]
         header_dict = dict()
         for k, v in header.items():
@@ -156,10 +158,6 @@ def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_r
                 print(f"\t{k}: {v}")
 
     if plot:
-        idx = np.random.choice(np.arange(len(images)), n_inspect)
-
-        images = images[idx]
-        masks = masks[idx]
 
         fig, axes = plt.subplots(n_inspect, 3, figsize=(15, 5 * n_inspect))
         n_bins = 256
