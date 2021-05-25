@@ -1,7 +1,6 @@
 import torch
-from torch.nn import Conv2d
 from torch.utils.data import DataLoader
-from torchvision.models.detection import maskrcnn_resnet50_fpn
+import onnx
 
 from detection.training import CraterEllipseDataset, collate_fn
 from src import CraterDetector
@@ -18,17 +17,34 @@ if __name__ == "__main__":
 
     images, targets = next(iter(loader))
 
-    model(images)
+    out = model(images)
+    print(out[0].keys())
 
     with torch.no_grad():
         torch.onnx.export(
             model,
-            images[0][None, ...],
+            (images,),
             "blobs/CraterRCNN.onnx",
             # do_constant_folding=True,
-            verbose=True,
+            verbose=False,
             export_params=True,  # store the trained parameter weights inside the model file
             opset_version=11,
+            do_constant_folding=True,
             input_names=['image_in'],  # the model's input names
-            output_names=['output']
+            output_names=['boxes', 'labels', 'scores', 'ellipse_matrices'],
+            dynamic_axes={'image_in': {0: 'batch', 1: 'height', 2: 'width'},
+                          'boxes': {0: 'sequence'},
+                          'labels': {0: 'sequence'},
+                          'scores': {0: 'sequence'},
+                          'ellipse_matrices': {0: 'sequence'}}
         )
+
+    # Load the ONNX model
+    model_onnx = onnx.load("blobs/CraterRCNN.onnx")
+
+    # Check that the IR is well formed
+    onnx.checker.check_model(model_onnx, full_check=True)
+
+    # Print a human readable representation of the graph
+    print(onnx.helper.printable_graph(model_onnx.graph))
+
