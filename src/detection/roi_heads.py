@@ -5,7 +5,8 @@ import torch
 from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
-from src.detection.metrics import mv_kullback_leibler_divergence, gaussian_angle_distance
+from src.detection.metrics import norm_mv_kullback_leibler_divergence,\
+    gaussian_angle_distance
 from src.common.conics import conic_matrix
 
 
@@ -25,6 +26,11 @@ class EllipseRegressor(nn.Module):
         return x
 
 
+# TODO: Create targets preprocessor for direct Smooth L1 loss calculation
+def preprocess_ellipse_targets(A_target: torch.Tensor):
+    pass
+
+
 def postprocess_ellipse_predictor(d_a: torch.Tensor,
                                   d_b: torch.Tensor,
                                   d_angle: torch.Tensor,
@@ -35,13 +41,14 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor,
     cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
 
-    a, b = ((torch.exp(param) * box_diag / 2).T for param in (d_a, d_b))
+    a, b = ((torch.exp(param) * box_diag / 2) for param in (d_a, d_b))
     theta = d_angle * np.pi / 2
     ang_cond1 = torch.cos(theta) >= 0
     ang_cond2 = ~ang_cond1
 
-    theta[ang_cond1] = torch.atan2(torch.sin(theta[ang_cond1]), torch.cos(theta[ang_cond1]))
-    theta[ang_cond2] = torch.atan2(-torch.sin(theta[ang_cond2]), -torch.cos(theta[ang_cond2]))
+    if not torch.onnx.is_in_onnx_export():
+        theta[ang_cond1] = torch.atan2(torch.sin(theta[ang_cond1]), torch.cos(theta[ang_cond1]))
+        theta[ang_cond2] = torch.atan2(-torch.sin(theta[ang_cond2]), -torch.cos(theta[ang_cond2]))
 
     return conic_matrix(a, b, theta, cx, cy)
 
@@ -60,8 +67,8 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
 
     A_pred = postprocess_ellipse_predictor(d_a, d_b, d_angle, boxes)
 
-    loss1 = mv_kullback_leibler_divergence(A_pred, A_target, shape_only=True)
-    loss2 = mv_kullback_leibler_divergence(A_target, A_pred, shape_only=True)
+    loss1 = norm_mv_kullback_leibler_divergence(A_pred, A_target)
+    loss2 = norm_mv_kullback_leibler_divergence(A_target, A_pred)
 
     return (0.5*loss1 + 0.5*loss2).mean()
 
@@ -86,7 +93,7 @@ def ellipse_loss_GA(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Ten
 class EllipseRoIHeads(RoIHeads):
     def __init__(self, box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                  positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img,
-                 ellipse_roi_pool, ellipse_head, ellipse_predictor, ellipse_loss=ellipse_loss_GA):
+                 ellipse_roi_pool, ellipse_head, ellipse_predictor, ellipse_loss_metric="gaussian-angle"):
 
         super().__init__(box_roi_pool, box_head, box_predictor, fg_iou_thresh, bg_iou_thresh, batch_size_per_image,
                          positive_fraction, bbox_reg_weights, score_thresh, nms_thresh, detections_per_img)
@@ -94,7 +101,13 @@ class EllipseRoIHeads(RoIHeads):
         self.ellipse_roi_pool = ellipse_roi_pool
         self.ellipse_head = ellipse_head
         self.ellipse_predictor = ellipse_predictor
-        self.ellipse_loss = ellipse_loss
+
+        if ellipse_loss_metric == "gaussian-angle":
+            self.ellipse_loss_fn = ellipse_loss_GA
+        elif ellipse_loss_metric == "kullback-leibler":
+            self.ellipse_loss_fn = ellipse_loss_KLD
+        else:
+            raise ValueError(f"Ellipse loss function {ellipse_loss_metric} not known.")
 
     def has_ellipse_reg(self) -> bool:
         if self.ellipse_roi_pool is None:
@@ -181,7 +194,7 @@ class EllipseRoIHeads(RoIHeads):
                 assert ellipse_shapes_normalised is not None
 
                 ellipse_matrix_targets = [t["ellipse_matrices"] for t in targets]
-                rcnn_loss_ellipse = self.ellipse_loss(
+                rcnn_loss_ellipse = self.ellipse_loss_fn(
                     ellipse_shapes_normalised, ellipse_matrix_targets, pos_matched_idxs, ellipse_proposals
                 )
                 loss_ellipse_regressor = {
