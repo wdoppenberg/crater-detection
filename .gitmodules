@@ -1,5 +1,5 @@
 [submodule "vendor/openvino"]
 	path = vendor/openvino
 	url = https://github.com/openvinotoolkit/openvino.git
-	branch = releases/2021/3
+	branch = master
 
