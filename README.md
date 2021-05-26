@@ -1,9 +1,9 @@
-# Crater-Based Low Orbit Navigation Using Ellipse R-CNN
+# Crater-Based Lunar Orbit Navigation Using Ellipse R-CNN
 
 ![Crater Detection Sample](./docs/detection_mosaic.png)
 
 
-This repository contains the necessary components to compose a Terrain-Relative Navigation (TRN) pipeline for navigating around the moon at low (<500km) altitudes. It utilizes a crater rim detection method based on Faster R-CNN & [Ellipse R-CNN](https://arxiv.org/abs/2001.11584) which is then trained to perform its task on simulated monocular camera images. These images are generated using [SurRender](https://www.airbus.com/space/space-exploration/SurRenderSoftware.html), and the training mask is created by projecting the apparent ellipses of craters into the image plane. Identification is done using the method as described in [Christian et al., 2020](https://arxiv.org/abs/2009.01228), which allows the system to create a database of projective invariants that are unique to each (approximately) coplanar crater triad.
+This repository contains the necessary components to compose a Terrain-Relative Navigation (TRN) pipeline for navigating around the moon at altitudes below 500km. It utilizes a crater rim detection method based on Faster R-CNN & [Ellipse R-CNN](https://arxiv.org/abs/2001.11584) which is then trained to perform its task on simulated monocular camera images. These images are generated using [SurRender](https://www.airbus.com/space/space-exploration/SurRenderSoftware.html), and the training mask is created by projecting the apparent ellipses of craters into the image plane. Identification is done using the method as described in [Christian et al., 2020](https://arxiv.org/abs/2009.01228), which allows the system to create a database of projective invariants that are unique to each (approximately) coplanar crater triad.
 
 ## Model description
 
