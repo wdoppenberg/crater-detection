@@ -54,9 +54,7 @@ def scale_det(matrix):
         return np.cbrt((1. / LA.det(matrix)))[..., None, None] * matrix
     elif isinstance(matrix, torch.Tensor):
         val = 1. / torch.det(matrix)
-        factor = torch.ones_like(val).to(val)
-        factor[val < 0] = -1
-        return (factor * torch.pow(torch.abs(val), 1. / 3.))[..., None, None] * matrix
+        return (torch.sign(val) * torch.pow(torch.abs(val), 1. / 3.))[..., None, None] * matrix
 
 
 def conic_matrix(a, b, psi, x=0, y=0):
@@ -372,10 +370,12 @@ class MaskGenerator(ConicProjector):
                              position=None,
                              resolution=const.CAMERA_RESOLUTION,
                              fov=const.CAMERA_FOV,
-                             primary_body_radius=const.RMOON
+                             primary_body_radius=const.RMOON,
+                             **load_crater_kwargs
                              ):
         lat_cat, long_cat, major_cat, minor_cat, psi_cat, crater_id = extract_robbins_dataset(
-            load_craters(file_path, diamlims=diamlims, ellipse_limit=ellipse_limit, arc_lims=arc_lims)
+            load_craters(file_path, diamlims=diamlims, ellipse_limit=ellipse_limit, arc_lims=arc_lims,
+                         **load_crater_kwargs)
         )
         r_craters_catalogue = np.array(np.array(spherical_to_cartesian(const.RMOON, lat_cat, long_cat))).T[..., None]
         C_craters_catalogue = conic_matrix(major_cat, minor_cat, psi_cat)
@@ -396,7 +396,7 @@ class MaskGenerator(ConicProjector):
         return (cdist(self.r_craters_catalogue.squeeze(), self.position.T) <=
                 np.sqrt(2 * self.height * self._primary_body_radius + self.height ** 2)).ravel()
 
-    def craters_in_image(self, margin=None):
+    def visible_catalogue_craters(self, margin=None):
         r_craters = self.r_craters_catalogue[self._visible()]
         C_craters = self.C_craters_catalogue[self._visible()]
 
@@ -411,6 +411,11 @@ class MaskGenerator(ConicProjector):
 
         r_craters = r_craters[in_image]
         C_craters = C_craters[in_image]
+
+        return C_craters, r_craters
+
+    def craters_in_image(self, margin=None):
+        C_craters, r_craters = self.visible_catalogue_craters(margin=margin)
 
         A_craters = self.project_crater_conics(C_craters, r_craters)
 

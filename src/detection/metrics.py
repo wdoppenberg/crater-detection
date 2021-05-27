@@ -1,5 +1,7 @@
 from typing import Tuple, Dict, Union
 
+import numpy as np
+import numpy.linalg as LA
 import torch
 from torchvision.ops import box_iou
 
@@ -207,14 +209,26 @@ def norm_mv_kullback_leibler_divergence(A1: torch.Tensor, A2: torch.Tensor) -> t
     return 1 - torch.exp(-mv_kullback_leibler_divergence(A1, A2))
 
 
-def gaussian_angle_distance(A1: torch.Tensor, A2: torch.Tensor) -> torch.Tensor:
+def gaussian_angle_distance(A1: Union[torch.Tensor, np.ndarray], A2: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
     A1, A2 = map(scale_det, (A1, A2))
     cov1, cov2 = map(lambda arr: -arr[..., :2, :2], (A1, A2))
-    m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
 
-    frac_term = (4 * torch.sqrt(cov1.det() * cov2.det())) / (cov1 + cov2).det()
-    exp_term = torch.exp(
-        -0.5 * (m1 - m2).transpose(-1, -2) @ cov1 @ (cov1 + cov2).inverse() @ cov2 @ (m1 - m2)
-    ).squeeze()
+    if isinstance(cov1, torch.Tensor) and isinstance(cov2, torch.Tensor):
+        m1, m2 = map(lambda arr: torch.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
 
-    return (frac_term * exp_term).arccos()
+        frac_term = (4 * torch.sqrt(cov1.det() * cov2.det())) / (cov1 + cov2).det()
+        exp_term = torch.exp(
+            -0.5 * (m1 - m2).transpose(-1, -2) @ cov1 @ (cov1 + cov2).inverse() @ cov2 @ (m1 - m2)
+        ).squeeze()
+
+        return (frac_term * exp_term).arccos()
+
+    elif isinstance(cov1, np.ndarray) and isinstance(cov2, np.ndarray):
+        m1, m2 = map(lambda arr: np.vstack(tuple(conic_center(arr).T)).T[..., None], (A1, A2))
+
+        frac_term = (4 * np.sqrt(LA.det(cov1) * LA.det(cov2)) / (LA.det(cov1 + cov2)))
+        exp_term = np.exp(-0.5 * (m1 - m2).transpose(0, 2, 1) @ cov1 @ LA.inv(cov1 + cov2) @ cov2 @ (m1 - m2)).squeeze()
+
+        return np.arccos(frac_term * exp_term)
+    else:
+        raise TypeError("A1 and A2 should of type torch.Tensor or np.ndarray.")

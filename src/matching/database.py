@@ -11,11 +11,9 @@ from sklearn.neighbors import radius_neighbors_graph
 import src.common.constants as const
 from common.conics import crater_camera_homography
 from common.robbins import load_craters
-
 from src.common.camera import camera_matrix
 from src.common.conics import conic_matrix, conic_center
 from src.common.coordinates import nadir_attitude
-
 from src.matching.position_estimation import calculate_position
 from src.matching.projective_invariants import CoplanarInvariants
 from src.matching.utils import get_cliques_by_length, shift_nd

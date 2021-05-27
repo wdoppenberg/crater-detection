@@ -16,10 +16,11 @@ def load_craters(path="../../data/lunar_crater_database_robbins_2018.csv",
 
     if latlims:
         lat0, lat1 = latlims
-        df_craters.query('(LAT_ELLI_IMG > @lat0) & (LAT_ELLI_IMG < @lat1)', inplace=True)
+        df_craters.query('(LAT_ELLI_IMG >= @lat0) & (LAT_ELLI_IMG <= @lat1)', inplace=True)
     if longlims:
-        long0, long1 = longlims
-        df_craters.query('(LON_ELLI_IMG > @long0) & (LON_ELLI_IMG < @long1)', inplace=True)
+        long0, long1 = map(lambda x: x + 360 if x < 0 else x, longlims)
+        long0, long1 = (long1, long0) if long0 > long1 else (long0, long1)
+        df_craters.query('(LON_ELLI_IMG >= @long0) & (LON_ELLI_IMG <= @long1)', inplace=True)
     if diamlims:
         diam0, diam1 = diamlims
         df_craters.query('(DIAM_CIRC_IMG >= @diam0) & (DIAM_CIRC_IMG <= @diam1)', inplace=True)
