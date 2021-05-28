@@ -128,13 +128,15 @@ def calculate_position(A_detections: np.ndarray,
                        K: np.ndarray,
                        batch_size: int = 10000,
                        top_n: int = 1,
-                       max_trials: int = 10000,
                        min_inliers: int = None,
                        min_inliers_fraction: float = 0.25,
-                       sigma_pix: float = 3,
-                       residual_threshold: float = 1,
+                       sigma_pix: float = 3.,
+                       max_trials: int = 10000,
+                       residual_threshold: float = 1.,
                        altitude_range: Iterable = None,
-                       return_num_matches: bool = False
+                       return_num_matches: bool = False,
+                       max_distance: float = 500,
+                       use_reprojection: bool = True
                        ):
     if len(A_detections) < 4:
         if return_num_matches:
@@ -149,14 +151,17 @@ def calculate_position(A_detections: np.ndarray,
         batch_size=batch_size
     ))
 
-    A_db_ = np.repeat(A_detections[crater_triads.ravel()], top_n, axis=0)
+    A_db_ = np.repeat(A_detections[crater_triads][:, None, ...], top_n, axis=1).reshape(-1, 3, 3)
 
     match_idxs, dist = map(lambda x: x.reshape(-1), database.query(key, k=top_n, return_distance=True))
 
     r_query_, C_query_ = database[match_idxs]
     r_query_, C_query_ = r_query_.reshape(-1, 3, 1), C_query_.reshape(-1, 3, 3)
     _, unique_mapping = np.unique(match_idxs, return_index=True)
-    dist_filter = dist.ravel()[unique_mapping] < 100
+
+    if max_distance is None:
+        max_distance = 0.2*LA.norm(np.repeat(key, top_n, axis=0), axis=1)[unique_mapping]
+    dist_filter = dist.ravel()[unique_mapping] < max_distance
 
     A_db, r_query, C_query = map(lambda x: x[unique_mapping][dist_filter], (A_db_, r_query_, C_query_))
 
@@ -169,42 +174,44 @@ def calculate_position(A_detections: np.ndarray,
         else:
             return None
 
-    est_pos_first, inlier_mask1 = derive_position(A_craters=A_db, r_craters=r_query, T=T, K=K, min_inliers=min_inliers,
+    est_pos, inlier_mask = derive_position(A_craters=A_db, r_craters=r_query, T=T, K=K, min_inliers=min_inliers,
                                                   max_trials=max_trials, residual_threshold=residual_threshold,
                                                   return_inlier_mask=True, altitude_range=altitude_range)
-    if est_pos_first is None:
+    if est_pos is None:
         if return_num_matches:
             return None, 0
         else:
             return None
 
-    C_inlier, r_inlier = C_query.reshape(-1, 3, 3)[inlier_mask1], r_query.reshape(-1, 3, 1)[inlier_mask1]
+    if use_reprojection:
 
-    projector = ConicProjector(position=est_pos_first, attitude=T)
+        C_inlier, r_inlier = C_query.reshape(-1, 3, 3)[inlier_mask], r_query.reshape(-1, 3, 1)[inlier_mask]
 
-    A_projected = projector.project_crater_conics(C_inlier, r_inlier)
-    A_matched = A_db[inlier_mask1]
+        projector = ConicProjector(position=est_pos, attitude=T)
 
-    divergence = gaussian_angle_distance(A_projected, A_matched)
+        A_projected = projector.project_crater_conics(C_inlier, r_inlier)
+        A_matched = A_db[inlier_mask]
 
-    a_i, b_i = ellipse_axes(A_projected)
+        divergence = gaussian_angle_distance(A_projected, A_matched)
 
-    sigma = (0.85 / np.sqrt(a_i * b_i)) * sigma_pix
+        a_i, b_i = ellipse_axes(A_projected)
 
-    reprojection_mask = ((divergence / sigma) ** 2) <= 13.276
+        sigma = (0.85 / np.sqrt(a_i * b_i)) * sigma_pix
 
-    if reprojection_mask.sum() < 3:
-        if return_num_matches:
-            return None, 0
-        else:
-            return None
+        reprojection_mask = ((divergence / sigma) ** 2) <= 13.276
 
-    est_pos_second, inlier_mask2 = derive_position(A_craters=A_matched[reprojection_mask],
-                                                   r_craters=r_inlier[reprojection_mask], T=T, K=K,
-                                                   min_inliers=3, max_trials=1000,
-                                                   return_inlier_mask=True, altitude_range=altitude_range
-                                                   )
+        if reprojection_mask.sum() < 3:
+            if return_num_matches:
+                return None, 0
+            else:
+                return None
+
+        est_pos, inlier_mask = derive_position(A_craters=A_matched[reprojection_mask],
+                                                       r_craters=r_inlier[reprojection_mask], T=T, K=K,
+                                                       min_inliers=3, max_trials=1000,
+                                                       return_inlier_mask=True, altitude_range=altitude_range
+                                                       )
     if return_num_matches:
-        return est_pos_second, inlier_mask2.sum()
+        return est_pos, inlier_mask.sum()
     else:
-        return est_pos_second
+        return est_pos
