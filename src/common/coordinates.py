@@ -2,7 +2,7 @@ from typing import Union
 
 import numpy as np
 import numpy.linalg as LA
-from astropy.coordinates import spherical_to_cartesian
+from astropy.coordinates import spherical_to_cartesian, cartesian_to_spherical
 from scipy.spatial.transform import Rotation
 
 import src.common.constants as const
@@ -199,7 +199,7 @@ class OrbitingBodyBase:
                         long,
                         height=None,
                         point_nadir=False,
-                        convert_to_radians=False
+                        convert_to_radians=True
                         ):
         if height is None:
             height = self.height
@@ -259,6 +259,20 @@ class OrbitingBodyBase:
     r: np.ndarray = position
     T: np.ndarray = attitude
     q: np.ndarray = quaternion
+
+    @property
+    def coordinates(self):
+        return tuple(map(lambda x: x.value.item(), cartesian_to_spherical(*self.position)))
+
+    @property
+    def latitude(self):
+        _, lat, _ = self.coordinates
+        return np.degrees(lat)
+
+    @property
+    def longitude(self):
+        _, _, long = self.coordinates
+        return np.degrees(long)
 
     @property
     def height(self):

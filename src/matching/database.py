@@ -14,7 +14,7 @@ from common.robbins import load_craters
 from src.common.camera import camera_matrix
 from src.common.conics import conic_matrix, conic_center
 from src.common.coordinates import nadir_attitude
-from src.matching.position_estimation import calculate_position
+from src.matching.position_estimation import query_position_ransac, query_position_lsq
 from src.matching.projective_invariants import CoplanarInvariants
 from src.matching.utils import get_cliques_by_length, shift_nd
 
@@ -190,7 +190,8 @@ class CraterDatabase:
                 df,
                 column_keys=None,
                 Rbody=const.RMOON,
-                radius=const.TRIAD_RADIUS
+                radius=const.TRIAD_RADIUS,
+                **kwargs
                 ):
         """
         Class method for constructing from pandas DataFrame.
@@ -221,7 +222,7 @@ class CraterDatabase:
         psi = np.radians(df[column_keys['angle']].to_numpy())
         crater_id = df[column_keys['id']].to_numpy()
 
-        return cls(lat, long, major, minor, psi, crater_id, Rbody, radius)
+        return cls(lat, long, major, minor, psi, crater_id, Rbody, radius, **kwargs)
 
     @classmethod
     def from_file(cls,
@@ -232,7 +233,8 @@ class CraterDatabase:
                   ellipse_limit=const.MAX_ELLIPTICITY,
                   column_keys=None,
                   Rbody=const.RMOON,
-                  radius=const.TRIAD_RADIUS
+                  radius=const.TRIAD_RADIUS,
+                  **kwargs
                   ):
         """
 
@@ -295,14 +297,25 @@ class CraterDatabase:
                        A_detections,
                        T,
                        K,
+                       regression_type="lsq",
                        **kwargs
                        ):
-        return calculate_position(A_detections,
-                                  self,
-                                  T=T,
-                                  K=K,
-                                  **kwargs
-                                  )
+        if regression_type == "lsq" or regression_type == "least-squares":
+            return query_position_lsq(A_detections,
+                                      self,
+                                      T=T,
+                                      K=K,
+                                      **kwargs
+                                      )
+        elif regression_type == "ransac":
+            return query_position_ransac(A_detections,
+                                         self,
+                                         T=T,
+                                         K=K,
+                                         **kwargs
+                                         )
+        else:
+            raise ValueError("Regression type not available. Choose from ('lsq', 'ransac').")
 
     def __getitem__(self, item):
         ct = self._crater_triads[item]
