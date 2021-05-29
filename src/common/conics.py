@@ -152,7 +152,8 @@ def plot_conics(A_craters: Union[np.ndarray, torch.Tensor],
                 figsize=(15, 15),
                 plot_centers=False,
                 ax=None,
-                rim_color='r'):
+                rim_color='r',
+                alpha=1.):
     if isinstance(A_craters, torch.Tensor):
         A_craters = A_craters.numpy()
 
@@ -167,7 +168,7 @@ def plot_conics(A_craters: Union[np.ndarray, torch.Tensor],
     ax.set_ylim(resolution[1], 0)
 
     ec = EllipseCollection(a_proj, b_proj, np.degrees(psi_proj), units='xy', offsets=r_pix_proj,
-                           transOffset=ax.transData, facecolors="None", edgecolors=rim_color)
+                           transOffset=ax.transData, facecolors="None", edgecolors=rim_color, alpha=alpha)
     ax.add_collection(ec)
 
     if plot_centers:

@@ -14,7 +14,7 @@ from common.robbins import load_craters
 from src.common.camera import camera_matrix
 from src.common.conics import conic_matrix, conic_center
 from src.common.coordinates import nadir_attitude
-from src.matching.position_estimation import query_position_ransac, query_position_lsq
+from src.matching.position_estimation import PositionRegressor
 from src.matching.projective_invariants import CoplanarInvariants
 from src.matching.utils import get_cliques_by_length, shift_nd
 
@@ -280,42 +280,64 @@ class CraterDatabase:
     def query(self,
               key,
               k=1,
-              return_distance=False
+              return_distance=False,
+              max_distance=0.1,
+              batch_size=100
               ):
 
         if k == 1:
             k = [k]
 
-        dist, entries = self._kdtree.query(key, k=k, p=2, workers=-1)
+        if key.shape[-1] == 3:
+            if len(key) < 3:
+                raise ValueError("Must give at least 3 conics for matching!")
 
-        if return_distance:
-            return entries, dist
+            crater_triads, features = next(CoplanarInvariants.match_generator(
+                A_craters=key,
+                max_iter=1,
+                batch_size=batch_size
+            ))
+
+            crater_triads = np.repeat(crater_triads[:, None, :], k, axis=1)
+
+            _, match_idxs = self._kdtree.query(features, k=k, p=2, workers=-1)
+
+            dist = np.abs((features[:, None, :] - self._features[match_idxs]) / features[:, None, :]).mean(-1)
+            dist_filter = dist < max_distance
+            r_query, C_query = self[match_idxs[dist_filter]]
+            A_query = key[crater_triads[dist_filter]]
+            A_query, r_query, C_query = A_query.reshape(-1, 3, 3), r_query.reshape(-1, 3, 1), C_query.reshape(-1, 3, 3)
+
+            if return_distance:
+                return A_query, r_query, C_query, dist
+            else:
+                return A_query, r_query, C_query
+
+        elif key.shape[-1] == 7:
+            dist, entries = self._kdtree.query(key, k=k, p=2, workers=-1)
+
+            if return_distance:
+                return entries, dist
+            else:
+                return entries
+
         else:
-            return entries
+            raise ValueError("Key has invalid shape! Must be [...")
 
     def query_position(self,
                        A_detections,
                        T,
                        K,
-                       regression_type="lsq",
+                       k=20,
+                       max_distance=0.1,
+                       batch_size=100,
                        **kwargs
                        ):
-        if regression_type == "lsq" or regression_type == "least-squares":
-            return query_position_lsq(A_detections,
-                                      self,
-                                      T=T,
-                                      K=K,
-                                      **kwargs
-                                      )
-        elif regression_type == "ransac":
-            return query_position_ransac(A_detections,
-                                         self,
-                                         T=T,
-                                         K=K,
-                                         **kwargs
-                                         )
-        else:
-            raise ValueError("Regression type not available. Choose from ('lsq', 'ransac').")
+        A_query, r_query, C_query = self.query(A_detections, k=k, max_distance=max_distance, batch_size=batch_size)
+        estimator = PositionRegressor(**kwargs)
+        estimator.fit(A_query=A_query, C_query=C_query, r_query=r_query, attitude=T, camera_matrix=K)
+
+        return estimator
 
     def __getitem__(self, item):
         ct = self._crater_triads[item]
