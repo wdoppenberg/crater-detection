@@ -1,4 +1,4 @@
-# Crater-Based Lunar Orbit Navigation Using Ellipse R-CNN
+# Lunar Orbit Navigation Using Ellipse R-CNN and Crater Pattern Matching
 
 ![Crater Detection Sample](./docs/detection_mosaic.png)
 
