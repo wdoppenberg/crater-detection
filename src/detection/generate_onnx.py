@@ -32,7 +32,7 @@ if __name__ == "__main__":
             do_constant_folding=True,
             input_names=['image_in'],  # the model's input names
             output_names=['boxes', 'labels', 'scores', 'ellipse_matrices'],
-            dynamic_axes={'image_in': {0: 'batch', 1: 'height', 2: 'width'},
+            dynamic_axes={'image_in': {0: 'batch'},
                           'boxes': {0: 'sequence'},
                           'labels': {0: 'sequence'},
                           'scores': {0: 'sequence'},

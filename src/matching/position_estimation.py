@@ -11,8 +11,8 @@ from detection.metrics import gaussian_angle_distance
 from src.common.coordinates import ENU_system
 
 
-def _model_validator(min_alt=30, max_alt=1000, primary_body_radius=const.RMOON):
-    return lambda model, *args: (primary_body_radius + min_alt) < LA.norm(model.coef_)
+def _model_validator(min_alt=30, max_alt=500, primary_body_radius=const.RMOON):
+    return lambda model, *args: (primary_body_radius + min_alt) < LA.norm(model.coef_) < (primary_body_radius + max_alt)
 
 
 class PositionRegressor:

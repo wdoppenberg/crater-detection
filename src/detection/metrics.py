@@ -31,8 +31,8 @@ def get_matched_idxs(pred: Union[Dict, torch.Tensor], target: Union[Dict, torch.
     Examples
     --------
     >>> matched_idxs, matched, iou_list = get_matched_idxs(boxes_pred, boxes_target, return_iou=True)
-    >>> A_pred_true = boxes_pred[matched]
-    >>> A_matched = boxes_target[matched_idxs][matched]
+    >>> pred_true = pred[matched]
+    >>> target_matched = target[matched_idxs][matched]
 
     """
     if isinstance(pred, dict) and isinstance(target, dict):

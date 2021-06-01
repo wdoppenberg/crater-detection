@@ -4,6 +4,7 @@ import networkx as nx
 import numpy as np
 import numpy.linalg as LA
 import pandas as pd
+import torch
 from astropy.coordinates import spherical_to_cartesian
 from scipy.spatial import KDTree
 from sklearn.neighbors import radius_neighbors_graph
@@ -328,13 +329,19 @@ class CraterDatabase:
                        A_detections,
                        T,
                        K,
-                       k=20,
-                       max_distance=0.1,
-                       batch_size=100,
+                       sigma_pix=5,
+                       k=30,
+                       max_distance=0.043,
+                       batch_size=500,
+                       residual_threshold=0.011,
+                       max_trials=1250,
                        **kwargs
                        ):
         A_query, r_query, C_query = self.query(A_detections, k=k, max_distance=max_distance, batch_size=batch_size)
-        estimator = PositionRegressor(**kwargs)
+        estimator = PositionRegressor(sigma_pix=sigma_pix,
+                                      residual_threshold=residual_threshold,
+                                      max_trials=max_trials,
+                                      **kwargs)
         estimator.fit(A_query=A_query, C_query=C_query, r_query=r_query, attitude=T, camera_matrix=K)
 
         return estimator
