@@ -142,7 +142,7 @@ def make_dataset(n_training,
 
 
 def inspect_dataset(dataset_path, plot=True, summary=True, n_inspect=25, pixel_range=(0, 1), return_fig=False):
-    with h5py.File(dataset_path) as hf:
+    with h5py.File(dataset_path, "r") as hf:
         idx = np.random.choice(np.arange(len(hf['training/images'])), n_inspect)
         idx = np.sort(idx)
         images = hf['training/images'][idx]
