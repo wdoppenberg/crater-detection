@@ -166,3 +166,6 @@ class SurRenderer(Camera):
             return out / max_pixel
         else:
             return out
+
+    def __del__(self):
+        del self.backend
