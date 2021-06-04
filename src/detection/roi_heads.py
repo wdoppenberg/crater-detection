@@ -5,9 +5,9 @@ import torch
 from torch import nn
 from torchvision.models.detection.roi_heads import fastrcnn_loss, RoIHeads
 
-from src.detection.metrics import norm_mv_kullback_leibler_divergence,\
-    gaussian_angle_distance
 from src.common.conics import conic_matrix
+from src.detection.metrics import norm_mv_kullback_leibler_divergence, \
+    gaussian_angle_distance
 
 
 class EllipseRegressor(nn.Module):
@@ -36,7 +36,6 @@ def postprocess_ellipse_predictor(d_a: torch.Tensor,
                                   d_angle: torch.Tensor,
                                   boxes: torch.Tensor
                                   ) -> torch.Tensor:
-
     box_diag = torch.sqrt((boxes[:, 2] - boxes[:, 0]) ** 2 + (boxes[:, 2] - boxes[:, 0]) ** 2)
     cx = boxes[:, 0] + ((boxes[:, 2] - boxes[:, 0]) / 2)
     cy = boxes[:, 1] + ((boxes[:, 3] - boxes[:, 1]) / 2)
@@ -70,7 +69,7 @@ def ellipse_loss_KLD(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Te
     loss1 = norm_mv_kullback_leibler_divergence(A_pred, A_target)
     loss2 = norm_mv_kullback_leibler_divergence(A_target, A_pred)
 
-    return (0.5*loss1 + 0.5*loss2).mean()
+    return (0.5 * loss1 + 0.5 * loss2).mean()
 
 
 def ellipse_loss_GA(d_pred: torch.Tensor, ellipse_matrix_targets: List[torch.Tensor],
