@@ -6,8 +6,8 @@ from scipy.optimize import least_squares
 from sklearn.linear_model import RANSACRegressor
 
 import src.common.constants as const
-from common.conics import ConicProjector, ellipse_axes
-from detection.metrics import gaussian_angle_distance
+from src.common.conics import ConicProjector, ellipse_axes
+from src.detection.metrics import gaussian_angle_distance
 from src.common.coordinates import ENU_system
 
 
