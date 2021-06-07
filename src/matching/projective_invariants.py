@@ -83,6 +83,7 @@ class PermutationInvariant:
             (((x1 - y1) ** 2 + (y1 - z1) ** 2 + (z1 - x1) ** 2) * ((x2 - y2) ** 2 + (y2 - z2) ** 2 + (z2 - x2) ** 2))))
 
 
+# TODO: Refactor
 class CoplanarInvariants:
     def __init__(self, crater_triads, A_i, A_j, A_k, normalize_det=True):
         """Generates projective invariants [1] assuming craters are coplanar. Input is an array of crater matrices

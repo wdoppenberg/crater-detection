@@ -5,7 +5,7 @@ import numpy.linalg as LA
 import torch
 from torchvision.ops import box_iou
 
-from src.common.conics import conic_center, scale_det
+from src.common.conics import conic_center, scale_det, ellipse_axes
 
 
 def get_matched_idxs(pred: Union[Dict, torch.Tensor], target: Union[Dict, torch.Tensor], iou_threshold: float = 0.5,
@@ -60,7 +60,8 @@ def get_matched_idxs(pred: Union[Dict, torch.Tensor], target: Union[Dict, torch.
             return torch.zeros(0).to(pred), torch.zeros(0, dtype=torch.bool).to(pred)
 
 
-def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold: float = 0.5, confidence_threshold: float = 0.75,
+def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold: float = 0.5,
+                      confidence_threshold: float = 0.75,
                       distance_threshold: float = None) -> Tuple[float, float, float, float, float]:
     """
     Calculates Precision, Recall, F1, IoU, and Gaussian Angle Distance for a single image.
@@ -113,13 +114,13 @@ def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold: float =
         FP = len(A_pred_conf) - TP
 
         matched_idxs_fn, matched_FN = get_matched_idxs(boxes_pred[scores < confidence_threshold],
-                                                           boxes_target, iou_threshold=iou_threshold)
+                                                       boxes_target, iou_threshold=iou_threshold)
 
         if distance_threshold is not None:
             if len(matched_idxs_fn) > 0 and matched_FN.sum() > 0:
                 matched_FN = matched_FN & (
                         gaussian_angle_distance(A_pred[scores < confidence_threshold],
-                                                                   A_target[matched_idxs_fn]) <= distance_threshold)
+                                                A_target[matched_idxs_fn]) <= distance_threshold)
             else:
                 matched_FN = None
         else:
@@ -129,7 +130,6 @@ def detection_metrics(pred_dict: Dict, target_dict: Dict, iou_threshold: float =
 
         precision, recall = precision_recall(TP, FP, FN)
         f1 = f1_score(precision, recall)
-
 
         return precision, recall, f1, iou, dist
     else:
