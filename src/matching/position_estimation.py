@@ -2,13 +2,14 @@ import warnings
 
 import numpy as np
 import numpy.linalg as LA
+from numba import njit
 from scipy.optimize import least_squares
 from sklearn.linear_model import RANSACRegressor
 
 import src.common.constants as const
 from src.common.conics import ConicProjector, ellipse_axes
-from src.detection.metrics import gaussian_angle_distance
 from src.common.coordinates import ENU_system
+from src.detection.metrics import gaussian_angle_distance
 
 
 def _model_validator(min_alt=30, max_alt=500, primary_body_radius=const.RMOON):
@@ -109,3 +110,44 @@ class PositionRegressor:
 
     def reprojection_match(self):
         return self.reprojection_mask.sum() > 2 and self.est_pos_verified is not None
+
+
+# https://www.researchgate.net/publication/259143595_Simultaneous_spacecraft_orbit_estimation_and_control_based_on_GPS_measurements_via_extended_Kalman_filter
+@njit
+def systems_dynamics_matrix(x_state: np.ndarray) -> np.ndarray:
+    mu_moon = 0.00490e6  # km^3 / s^2
+    A = np.zeros((6, 6))
+    A[:3, 3:] = np.identity(3)
+
+    X: float = x_state[0, 0]
+    Y: float = x_state[1, 0]
+    Z: float = x_state[2, 0]
+    r = LA.norm(x_state[:3], ord=2)
+
+    f1_rtx = mu_moon * (3 * X ** 2 - r ** 2) / (r ** 5)
+    f1_rty = mu_moon * (3 * X * Y) / (r ** 5)
+    f1_rtz = mu_moon * (3 * X * Z) / (r ** 5)
+
+    f2_rtx = f1_rty
+    f2_rty = mu_moon * (3 * Y ** 2 - r ** 2) / (r ** 5)
+    f2_rtz = mu_moon * (3 * Y * Z) / (r ** 5)
+
+    f3_rtx = f1_rtz
+    f3_rty = f2_rtz
+    f3_rtz = mu_moon * (3 * Z ** 2 - r ** 2) / (r ** 5)
+
+    A[3, :3] = np.array([f1_rtx, f1_rty, f1_rtz])
+    A[4, :3] = np.array([f2_rtx, f2_rty, f2_rtz])
+    A[5, :3] = np.array([f3_rtx, f3_rty, f3_rtz])
+
+    return A
+
+
+def hx(x_state):
+    return x_state[:3]
+
+
+def HJacobian_at(*args):
+    measurement_matrix = np.zeros((3, 6))
+    measurement_matrix[:3, :3] = np.identity(3)
+    return measurement_matrix
