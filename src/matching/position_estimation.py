@@ -143,11 +143,11 @@ def systems_dynamics_matrix(x_state: np.ndarray) -> np.ndarray:
     return A
 
 
-def hx(x_state):
-    return x_state[:3]
+def Hx(x_state):
+    return HJacobian(x_state) @ x_state
 
 
-def HJacobian_at(*args):
+def HJacobian(*args):
     measurement_matrix = np.zeros((3, 6))
     measurement_matrix[:3, :3] = np.identity(3)
     return measurement_matrix

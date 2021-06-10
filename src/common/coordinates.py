@@ -40,31 +40,13 @@ def ENU_system(r):
     """
     k = np.array([0, 0, 1])[:, None]
 
-    if len(r.shape) == 4:
-        u_i = r / LA.norm(r, ord=2, axis=(-2, -1))[:, None, :, None]
+    u_i = r / LA.norm(r, ord=2, axis=(-1, -2), keepdims=True)
 
-        e_i = np.cross(k[None, ...], r, axis=-2)
-        e_i /= LA.norm(e_i, ord=2, axis=(-2, -1))[:, None, :, None]
+    e_i = np.cross(k, r, axisa=0, axisb=-2, axisc=-2)
+    e_i /= LA.norm(e_i, ord=2, axis=(-1, -2), keepdims=True)
 
-        n_i = np.cross(r, e_i, axis=-2)
-        n_i /= LA.norm(n_i, ord=2, axis=(-2, -1))[:, None, :, None]
-
-    elif len(r.shape) == 3:
-        u_i = r / LA.norm(r, ord=2, axis=(1, 2))[:, None, None]
-
-        e_i = np.cross(k[None, ...], r, axis=1)
-        e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
-
-        n_i = np.cross(r, e_i, axis=1)
-        n_i /= LA.norm(n_i, ord=2, axis=(1, 2))[:, None, None]
-    else:
-        u_i = r / LA.norm(r, ord=2)
-
-        e_i = np.cross(k, r, axis=0)
-        e_i /= LA.norm(e_i, ord=2)
-
-        n_i = np.cross(r, e_i, axis=0)
-        n_i /= LA.norm(n_i, ord=2)
+    n_i = np.cross(r, e_i, axis=-2)
+    n_i /= LA.norm(n_i, ord=2, axis=(-1, -2), keepdims=True)
 
     return e_i, n_i, u_i
 
@@ -85,25 +67,13 @@ def nadir_attitude(r):
 
     """
     k = np.array([0, 0, 1])[:, None]
+    d_i = -r / LA.norm(r, ord=2, axis=(-1, -2), keepdims=True)
 
-    if len(r.shape) == 3:
-        d_i = -(r / LA.norm(r, ord=2, axis=(1, 2))[:, None, None])
+    e_i = np.cross(k, -d_i, axisa=0, axisb=-2, axisc=-2)
+    e_i /= LA.norm(e_i, ord=2, axis=(-1, -2), keepdims=True)
 
-        e_i = np.cross(k[None, ...], -d_i, axis=1)
-        e_i /= LA.norm(e_i, ord=2, axis=(1, 2))[:, None, None]
-
-        s_i = np.cross(d_i, e_i, axis=1)
-        s_i /= LA.norm(s_i, ord=2, axis=(1, 2))[:, None, None]
-    elif len(r.shape) == 2:
-        d_i = -(r / LA.norm(r))
-
-        e_i = np.cross(k, r, axis=0)
-        e_i /= LA.norm(e_i, ord=2)
-
-        s_i = np.cross(d_i, e_i, axis=0)
-        s_i /= LA.norm(s_i, ord=2)
-    else:
-        raise ValueError(f"Input shape is invalid! -> {r.shape}")
+    s_i = np.cross(d_i, e_i, axis=-2)
+    s_i /= LA.norm(s_i, ord=2, axis=(-1, -2), keepdims=True)
 
     return e_i, s_i, d_i
 
