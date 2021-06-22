@@ -2,16 +2,22 @@ from typing import Union
 
 import numpy as np
 import torch
+from filterpy.kalman import EKF
 
+from common.coordinates import OrbitingBodyBase
 from src.detection import CraterDetector
 from src.matching import CraterDatabase
+from src.common.camera import Camera
 
 
-class LunarNavigator(CraterDetector):
-    def __init__(self, camera_matrix, latlims, longlims, diamlims, **kwargs):
+class LunarNavigator(CraterDetector, Camera):
+    def __init__(self,
+                 database: CraterDatabase,
+                 ekf: EKF,
+                 **kwargs):
         super().__init__(**kwargs)
-        self.camera_matrix = camera_matrix
-        self.database = CraterDatabase.from_file(latlims=latlims, longlims=longlims, diamlims=diamlims)
+        self._database = database
+        self._ekf = ekf
 
     @torch.no_grad()
     def derive_position(self, image: Union[np.ndarray, torch.Tensor], attitude, confidence=0.75):

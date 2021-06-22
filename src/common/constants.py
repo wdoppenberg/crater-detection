@@ -43,7 +43,7 @@ GENERATION_KWARGS = dict(
 
 
 # Database generation
-TRIAD_RADIUS = 100  # Create triangles with every crater within this TRIAD_RADIUS [km]
+TRIAD_RADIUS = 200  # Create triangles with every crater within this TRIAD_RADIUS [km]
 DB_CAM_ALTITUDE = 300
 
 
