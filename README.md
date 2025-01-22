@@ -9,6 +9,9 @@ This repository contains the necessary components to compose a Terrain-Relative 
 
 ## Model description
 
+> [!NOTE]  
+> If you're looking for the standalone Ellipse R-CNN model, check out [this repository](https://github.com/wdoppenberg/ellipse-rcnn).
+
 ![Crater detector](./docs/model-architecture.png)
 
 ## Instructions
